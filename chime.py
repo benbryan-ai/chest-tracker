@@ -1,14 +1,19 @@
 """A short chime for each counted chest, for people who miss the on-screen animation.
 
 The sound is generated here, so there is no audio file to ship, and it is played with
-Windows' built-in sound player, so nothing extra is needed.
+Windows' built-in sound player, so nothing extra is needed. Windows can only play a sound
+from memory while the caller waits, so playing happens on a small thread of its own.
 """
 
 import io
+import logging
 import math
 import struct
+import threading
 import wave
 from collections.abc import Callable
+
+log = logging.getLogger("chest-tracker")
 
 SAMPLE_RATE = 44100
 MIN_VOLUME, MAX_VOLUME = 0.1, 1.0
@@ -52,11 +57,28 @@ def make_chime(volume: float = DEFAULT_VOLUME) -> bytes:
     return buffer.getvalue()
 
 
-def _windows_player(data: bytes) -> None:
-    import winsound
+_warned = False
 
-    # Played from memory and without blocking. The caller keeps `data` alive while it plays.
-    winsound.PlaySound(data, winsound.SND_MEMORY | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+
+def _play_blocking(data: bytes) -> None:
+    """Plays the sound and returns when it ends. Runs on its own thread, never the counting one."""
+    global _warned
+    try:
+        import winsound
+
+        # Windows can't play from memory in the background (it refuses SND_MEMORY with SND_ASYNC),
+        # so this call waits for the sound and the thread above is what keeps it out of the way.
+        # A newer chime cuts off an older one that is still playing.
+        winsound.PlaySound(data, winsound.SND_MEMORY | winsound.SND_NODEFAULT)
+    except Exception as error:  # no sound device, or not Windows
+        if not _warned:
+            _warned = True
+            log.warning("The chime couldn't play: %s: %s", error.__class__.__name__, error)
+
+
+def _windows_player(data: bytes) -> None:
+    # The thread holds `data` for as long as the sound plays.
+    threading.Thread(target=_play_blocking, args=(data,), daemon=True, name="chime").start()
 
 
 class Chime:
