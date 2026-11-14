@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea,
     QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
@@ -27,8 +27,10 @@ from chime import DEFAULT_VOLUME, MAX_VOLUME, MIN_VOLUME, Chime, clamp_volume
 from detection import CANCELLED, PENDING, PromptMatcher
 from fortnite_stats import FortniteStatsError, fetch_stats
 from gamepad import is_pad_name, pad_label, shared_gamepad
+from matches import MatchLog
 from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
 from protocol import MAX_NAME_LENGTH, name_problem
+from recap import RecapDetector
 from settings import Settings, Stats
 from store import Store
 from watcher import (
@@ -556,6 +558,31 @@ class TrackerPage(QWidget):
         session_layout.addLayout(session_row)
         side.addWidget(session_card)
 
+        match_card = QFrame()
+        match_card.setObjectName("statCard")
+        match_layout = QVBoxLayout(match_card)
+        match_layout.setContentsMargins(18, 14, 18, 13)
+        match_layout.setSpacing(3)
+        match_layout.addWidget(label("THIS MATCH", "cardTitle"))
+        match_row = QHBoxLayout()
+        self.match_count = label("0", "sessionCount")
+        match_row.addWidget(self.match_count)
+        match_row.addWidget(label("chests this match", "muted"), 0, Qt.AlignmentFlag.AlignBottom)
+        match_row.addStretch(1)
+        match_layout.addLayout(match_row)
+        self.match_summary = label("No finished matches yet", "small", wrap=True)
+        match_layout.addWidget(self.match_summary)
+        match_buttons = QHBoxLayout()
+        self.new_match = QPushButton("New match")
+        self.new_match.setToolTip("Closes this match and starts the next. The new-match key does the same.")
+        self.new_match.clicked.connect(lambda: window.finish_match("button"))
+        match_buttons.addWidget(self.new_match)
+        self.export_matches = QPushButton("Export history")
+        self.export_matches.clicked.connect(window.export_match_history)
+        match_buttons.addWidget(self.export_matches)
+        match_layout.addLayout(match_buttons)
+        side.addWidget(match_card)
+
         activity_card = QFrame()
         activity_card.setObjectName("activityCard")
         activity_layout = QVBoxLayout(activity_card)
@@ -591,6 +618,19 @@ class TrackerPage(QWidget):
         self.tally.set_count(stats.today)
         self.session.setText(f"{stats.session:,}")
         self.remove.setEnabled(stats.total > 0)
+
+    def show_matches(self, matches: MatchLog) -> None:
+        self.match_count.setText(f"{matches.current:,}")
+        self.new_match.setEnabled(matches.current > 0)
+        self.export_matches.setEnabled(bool(matches.history))
+        summary = matches.stats()
+        if summary is None:
+            self.match_summary.setText("No finished matches yet")
+        else:
+            self.match_summary.setText(
+                f"{summary.matches:,} {'match' if summary.matches == 1 else 'matches'} · average {summary.average:.1f} · "
+                f"median {summary.median:g} · best {summary.best:,}"
+            )
 
     def log(self, text: str, color: str = BONE) -> None:
         if self.empty is not None:
@@ -740,6 +780,15 @@ class SetupPage(QWidget):
         self.pause_capture.set_key(settings["pause_key"])
         self.pause_capture.captured.connect(self._save_pause_key)
         self.key_step.content.addWidget(self.pause_capture)
+        self.key_step.content.addWidget(label(
+            "Click to choose a new-match key. Press it in Fortnite to start counting a new match "
+            "if the app missed the end-of-match screen; F8 is the default.",
+            "muted", wrap=True,
+        ))
+        self.match_capture = KeyCapture(keyboard_only=True, action_label="new-match key")
+        self.match_capture.set_key(settings["match_key"])
+        self.match_capture.captured.connect(self._save_match_key)
+        self.key_step.content.addWidget(self.match_capture)
 
         self.prompt_step = Step(4, "Chest prompt", last=True)
         self.prompt_step.content.addWidget(label(
@@ -791,6 +840,10 @@ class SetupPage(QWidget):
         self.overlay_position.clicked.connect(self._toggle_overlay_position)
         overlay_row.addWidget(self.overlay_position)
         layout.addLayout(overlay_row)
+        self.overlay_match = QCheckBox("Also show this match's chest count")
+        self.overlay_match.setChecked(settings["overlay_show_match"])
+        self.overlay_match.toggled.connect(window.set_overlay_match)
+        layout.addWidget(self.overlay_match)
         self.size_slider, self.size_text = self._option_slider(
             layout, "Size", 100 * MIN_SCALE, 100 * MAX_SCALE,
             100 * clamp(settings["overlay_scale"], MIN_SCALE, MAX_SCALE, 1.0), "{}%", self._save_overlay_scale,
@@ -884,7 +937,7 @@ class SetupPage(QWidget):
         self.key_step.set_done(
             True,
             f"{key_label(settings['interact_keys'][0])} interact · {key_label(settings['remove_key'])} undo"
-            f" · {key_label(settings['pause_key'])} pause",
+            f" · {key_label(settings['pause_key'])} pause · {key_label(settings['match_key'])} new match",
         )
         count = len(list(self.window_.templates_dir.glob("*.png")))
         self.prompt_step.set_done(count > 0, f"{count} saved")
@@ -956,15 +1009,25 @@ class SetupPage(QWidget):
                 self._test_webhook()
 
     def _save_key(self, name: str) -> None:
-        if name in (self.window_.settings["remove_key"], self.window_.settings["pause_key"]):
+        if self._key_taken(name, "interact"):
             self.capture.set_key(self.window_.settings["interact_keys"][0])
             QMessageBox.warning(
-                self, "Keys must be different", "Choose a different key for interact, undo and pause."
+                self, "Keys must be different", "Choose a different key for interact, undo, pause and new match."
             )
             return
         self.window_.settings.set(interact_keys=[name])
         self.refresh_steps()
         self.window_.restart_engine()
+
+    def _key_taken(self, name: str, own: str) -> bool:
+        """True if another action already uses this key (interact, undo, pause and new match differ)."""
+        settings = self.window_.settings
+        others = {
+            "interact": settings["interact_keys"][0], "remove": settings["remove_key"],
+            "pause": settings["pause_key"], "match": settings["match_key"],
+        }
+        others.pop(own)
+        return name in others.values()
 
     def _typing_key_allowed(self, name: str, what: str) -> bool:
         """Typing in Fortnite (chat, search boxes, party names) would trigger a letter or space key."""
@@ -981,10 +1044,10 @@ class SetupPage(QWidget):
 
     def _save_remove_key(self, name: str) -> None:
         settings = self.window_.settings
-        if name in (settings["interact_keys"][0], settings["pause_key"]):
+        if self._key_taken(name, "remove"):
             self.remove_capture.set_key(settings["remove_key"])
             QMessageBox.warning(
-                self, "Keys must be different", "Choose a different key for interact, undo and pause."
+                self, "Keys must be different", "Choose a different key for interact, undo, pause and new match."
             )
             return
         if not self._typing_key_allowed(name, "remove chests"):
@@ -996,16 +1059,29 @@ class SetupPage(QWidget):
 
     def _save_pause_key(self, name: str) -> None:
         settings = self.window_.settings
-        if name in (settings["interact_keys"][0], settings["remove_key"]):
+        if self._key_taken(name, "pause"):
             self.pause_capture.set_key(settings["pause_key"])
             QMessageBox.warning(
-                self, "Keys must be different", "Choose a different key for interact, undo and pause."
+                self, "Keys must be different", "Choose a different key for interact, undo, pause and new match."
             )
             return
         if not self._typing_key_allowed(name, "pause tracking"):
             self.pause_capture.set_key(settings["pause_key"])
             return
         settings.set(pause_key=name)
+        self.refresh_steps()
+        self.window_.restart_engine()
+
+    def _save_match_key(self, name: str) -> None:
+        settings = self.window_.settings
+        if self._key_taken(name, "match"):
+            self.match_capture.set_key(settings["match_key"])
+            QMessageBox.warning(self, "Keys must be different", "Choose a different key for interact, undo, pause and new match.")
+            return
+        if not self._typing_key_allowed(name, "start a new match"):
+            self.match_capture.set_key(settings["match_key"])
+            return
+        settings.set(match_key=name)
         self.refresh_steps()
         self.window_.restart_engine()
 
@@ -1341,6 +1417,8 @@ class MainWindow(QMainWindow):
     delivery = Signal(bool, str)
     bot_status = Signal(str, str)
     pause_pressed = Signal()
+    new_match_pressed = Signal()
+    match_ended = Signal()
 
     def __init__(self, folder: Path, icon: QIcon):
         super().__init__()
@@ -1348,6 +1426,8 @@ class MainWindow(QMainWindow):
         self.templates_dir = folder / "templates"
         self.settings = Settings(folder)
         self.stats = Stats(folder)
+        self.matches = MatchLog(folder / "matches.json")
+        self.recap = RecapDetector.load_bundled()  # None: matches are then ended with the key or button
         self.engine: WatchEngine | None = None
         self.bot: BotRunner | None = None
         self.paused = False
@@ -1360,6 +1440,8 @@ class MainWindow(QMainWindow):
         self.overlay.set_scale(self.settings["overlay_scale"])
         self.overlay.set_opacity(self.settings["overlay_opacity"])
         self.overlay.set_count(self.stats.total)
+        self.overlay.set_match(self.matches.current)
+        self.overlay.set_match_visible(self.settings["overlay_show_match"])
         self.overlay.position_saved.connect(self._save_overlay_position)
         self._overlay_positioning = False
         self._overlay_screen = None
@@ -1416,6 +1498,8 @@ class MainWindow(QMainWindow):
         self.chest.connect(self.record_chest)
         self.attempt.connect(self._on_attempt)
         self.pause_pressed.connect(self.toggle_pause)
+        self.new_match_pressed.connect(lambda: self.finish_match("key"))
+        self.match_ended.connect(lambda: self.finish_match("recap"))
         self.engine_state.connect(self.set_state)
         self.match_score.connect(self.setup.show_score)
         self.delivery.connect(self._on_delivery)
@@ -1470,7 +1554,38 @@ class MainWindow(QMainWindow):
         )
         self.tray.show()
 
+    def finish_match(self, how: str) -> None:
+        """Close the current match (end screen seen, new-match key or button) and start the next."""
+        record = self.matches.finish()
+        self.overlay.set_match(0)
+        self._show_stats()
+        if record is None:
+            if how != "recap":
+                self.tracker.log("This match had no chests, so nothing was saved", ASH)
+            return
+        log.info("Match finished (%s): %d chests", how, record["chests"])
+        word = "chest" if record["chests"] == 1 else "chests"
+        self.tracker.log(f"Match finished: {record['chests']} {word}", GOLD)
+
+    def export_match_history(self) -> None:
+        name, _ = QFileDialog.getSaveFileName(
+            self, "Export match history", str(Path.home() / "chest-tracker-matches.csv"), "CSV file (*.csv)"
+        )
+        if not name:
+            return
+        try:
+            written = self.matches.export_csv(Path(name))
+        except OSError as error:
+            QMessageBox.warning(self, "Couldn't save the file", str(error))
+            return
+        self.tracker.log(f"Exported {written} matches", MINT)
+
+    def set_overlay_match(self, shown: bool) -> None:
+        self.settings.set(overlay_show_match=shown)
+        self.overlay.set_match_visible(shown)
+
     def _show_stats(self) -> None:
+        self.tracker.show_matches(self.matches)
         self.tracker.show_stats(self.stats)
         self.tray.setToolTip(f"Chest Tracker: {self.stats.total:,} chests")
 
@@ -1517,6 +1632,14 @@ class MainWindow(QMainWindow):
             self.setup.refresh_steps()
             pause_code = VK_F9
         try:
+            match_code = key_code(self.settings["match_key"])
+        except ValueError as error:
+            log.error("New-match key problem: %s. Using F8.", error)
+            self.settings.set(match_key="F8")
+            self.setup.match_capture.set_key("F8")
+            self.setup.refresh_steps()
+            match_code = VK_F8
+        try:
             interact = interact_check(self.settings["interact_keys"])
         except (ValueError, RuntimeError) as error:
             log.error("Interact key problem: %s", error)
@@ -1528,6 +1651,9 @@ class MainWindow(QMainWindow):
             self.chest.emit, self.engine_state.emit, self.match_score.emit, self.attempt.emit,
             remove_hotkey=remove_code, pause_hotkey=pause_code, on_pause=self.pause_pressed.emit,
             box_filter=self.box_filter,
+            match_hotkey=match_code, on_new_match=self.new_match_pressed.emit,
+            recap=self.recap, match_open=lambda: self.matches.current > 0,
+            on_match_end=self.match_ended.emit,
         )
         if self.paused:
             self.engine.paused.set()  # stays paused through a settings change
@@ -1567,7 +1693,10 @@ class MainWindow(QMainWindow):
         changed = self.stats.add(amount)  # 0 when there was nothing left to take off
         if source == "detected" and changed > 0 and self.settings["chime_enabled"]:
             self.play_chime()
+        if changed:
+            self.matches.add(changed)
         self.overlay.set_count(self.stats.total, celebrate=source == "detected" and changed > 0)
+        self.overlay.set_match(self.matches.current)
         # Only share what really changed, and only if Discord sharing is set up. Sending a
         # -1 for a chest that was never counted would push the group total below the truth.
         if changed and self.settings["webhook_url"] and self.settings["player_name"]:

@@ -1020,3 +1020,114 @@ def test_a_broken_filter_never_stops_counting(quick_confirm):
 def test_no_filter_counts_everything(quick_confirm):
     chests, _ = run_with_filter(None)
     assert chests == [(1, "detected")]
+
+
+# --- the new-match key and the end-of-match check in the engine ---
+
+class FakeRecap:
+    def __init__(self, showing):
+        self.showing, self.checks = showing, 0
+
+    def is_recap(self, gray):
+        self.checks += 1
+        return self.showing
+
+
+class FullCapture(FakeCapture):
+    def grab_full(self):
+        return np.zeros((10, 10), np.uint8)
+
+
+def run_recap(recap, match_open, seconds=1.4):
+    template, with_prompt, _, _ = prompt_scenes()
+    ended = []
+
+    class Capture(FullCapture):
+        frames = [with_prompt]
+
+    engine, *_ = make_engine(
+        PromptMatcher([template], 0.8), Capture, lambda: False,
+        recap=recap, match_open=match_open, on_match_end=lambda: ended.append(1),
+    )
+    engine.start()
+    time.sleep(seconds)
+    engine.stop()
+    engine.join(2)
+    return ended
+
+
+def test_the_end_screen_ends_a_match_that_has_chests():
+    recap = FakeRecap(True)
+    assert run_recap(recap, lambda: True)
+
+
+def test_the_end_screen_is_not_even_checked_when_the_match_has_no_chests():
+    recap = FakeRecap(True)
+    assert run_recap(recap, lambda: False) == []
+    assert recap.checks == 0
+
+
+def test_no_end_screen_means_the_match_goes_on():
+    assert run_recap(FakeRecap(False), lambda: True) == []
+
+
+def test_a_capture_without_full_screen_support_just_skips_the_check():
+    template, with_prompt, _, _ = prompt_scenes()
+
+    class Capture(FakeCapture):
+        frames = [with_prompt]
+
+    engine, *_ = make_engine(
+        PromptMatcher([template], 0.8), Capture, lambda: False,
+        recap=FakeRecap(True), match_open=lambda: True, on_match_end=lambda: pytest.fail("no screen"),
+    )
+    engine.start()
+    time.sleep(0.5)
+    engine.stop()
+    engine.join(2)
+
+
+def test_a_failing_end_screen_check_never_stops_the_engine():
+    class Broken:
+        def is_recap(self, gray):
+            raise RuntimeError("boom")
+
+    assert run_recap(Broken(), lambda: True) == []
+
+
+def test_the_new_match_key_is_heard_only_in_fortnite(monkeypatch):
+    pressed = {"now": True}
+
+    class Edge:
+        def __init__(self, code):
+            self.code = code
+
+        def pressed(self):
+            return pressed["now"] if self.code == 0x77 else False
+
+    monkeypatch.setattr(watcher, "KeyEdge", Edge)
+    template, with_prompt, _, _ = prompt_scenes()
+    heard = []
+
+    class Capture(FakeCapture):
+        frames = [with_prompt]
+
+    engine, *_ = make_engine(
+        PromptMatcher([template], 0.8), Capture, lambda: False,
+        match_hotkey=0x77, on_new_match=lambda: heard.append(1), focused=lambda: False,
+    )
+    engine.start()
+    time.sleep(0.5)
+    engine.stop()
+    engine.join(2)
+    assert heard == []
+    pressed["now"] = True
+    engine, *_ = make_engine(
+        PromptMatcher([template], 0.8), Capture, lambda: False,
+        match_hotkey=0x77, on_new_match=lambda: heard.append(1),
+    )
+    engine.start()
+    time.sleep(0.5)
+    engine.stop()
+    engine.join(2)
+    assert heard

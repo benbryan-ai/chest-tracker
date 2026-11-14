@@ -75,6 +75,14 @@ Counted one by mistake? Press **F10** while Fortnite is focused, or select **Rem
 
 To pause, press **F9** while Fortnite is focused or use **Pause tracking** in the window or tray. Nothing is counted while paused, and a search under way when you pause is dropped. Pausing also forgets presses made while paused. Undo, pause and interact must be three different keys. To hear the chime, turn it on under **Chime** in Setup and use **Play sound** to check the volume. Players can't add chests by hand, but someone with Manage Server can use `/add` in Discord.
 
+### Matches
+
+The tracker counts chests per match as well as in total. **This match** appears on the Tracker page and, if you leave **Also show this match's chest count** on in Setup, on the in-game overlay. When a match ends, the app saves its count and starts the next one at zero. Your all-time, today and Discord totals are not affected.
+
+A match ends when the app sees Fortnite's end-of-match screen (the one with **Return to lobby** and **Play again**). That screen only appears once your whole team is out or you leave, so spectating doesn't end a match. If the app misses it, press **F8** in Fortnite or click **New match**. F8 can be changed in Setup, and it must differ from your other keys.
+
+The Tracker page shows the average, median and best chests per match. Matches with no chests are never saved, so they don't pull the average down. **Export history** saves the matches as a CSV file for a spreadsheet. A match still open when the app starts is carried on if it began within two hours, and closed otherwise. Only matches from this version onward are counted.
+
 ### Known limits
 
 The app can't see inside the game, so these rules are strong evidence rather than proof.
@@ -182,6 +190,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `bot.py`, `store.py` | The Discord bot and its database |
 | `ui.py`, `widgets.py`, `overlay.py` | The app window, animated chest and in-game count badge |
 | `boxfilter.py`, `tools/train_box_filter.py` | Skips ammo and fruit boxes by color, and the script that retrains it from screenshots |
+| `matches.py`, `recap.py` | Chests per match and its history, and the end-of-match screen check |
 | `chime.py` | The optional counted-chest sound, generated in code |
 | `settings.py`, `protocol.py` | Saved settings and counts, and the rules for names, webhook links and messages |
 | `tests/` | The automated tests. They run on any OS, since the Windows calls are stubbed |

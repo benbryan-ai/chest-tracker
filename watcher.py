@@ -166,14 +166,21 @@ class ScreenCapture:
         self.sct = mss.MSS()
         self.region = None
         self.last_color: np.ndarray | None = None
+        self.monitor = None
 
     def refresh(self) -> None:
-        self.region = search_region(foreground_monitor(self.sct), self.area)
+        monitor = foreground_monitor(self.sct)
+        self.region = search_region(monitor, self.area)
+        self.monitor = monitor
 
     def grab(self) -> np.ndarray:
         raw = np.asarray(self.sct.grab(self.region))
         self.last_color = raw  # the same frame in color, for telling chests from boxes
         return cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+
+    def grab_full(self) -> np.ndarray:
+        """The whole game screen in gray, for the end-of-match check (not needed every frame)."""
+        return cv2.cvtColor(np.asarray(self.sct.grab(self.monitor)), cv2.COLOR_BGRA2GRAY)
 
     def close(self) -> None:
         self.sct.close()
@@ -302,8 +309,18 @@ class WatchEngine(threading.Thread):
         pause_hotkey: int | None = None,
         on_pause: Callable[[], None] = lambda: None,
         box_filter=None,
+        match_hotkey: int | None = None,
+        on_new_match: Callable[[], None] = lambda: None,
+        recap=None,
+        match_open: Callable[[], bool] = lambda: False,
+        on_match_end: Callable[[], None] = lambda: None,
     ):
         super().__init__(daemon=True)
+        self.match_hotkey = match_hotkey
+        self.on_new_match = on_new_match
+        self.recap = recap  # spots the end-of-match screen; None = matches are ended by hand
+        self.match_open = match_open  # only look for the recap while a match has chests
+        self.on_match_end = on_match_end
         self.box_filter = box_filter  # tells chests from ammo and fruit boxes; None = count everything
         self.matcher = matcher
         self.interact_used = interact_used
@@ -333,6 +350,17 @@ class WatchEngine(threading.Thread):
             log.warning("Box filter failed: %s", error)
             return None
 
+    def _recap_showing(self, capture) -> bool:
+        """True if the end-of-match screen is up. Only checked while a match has chests."""
+        try:
+            if not self.match_open():
+                return False
+            grab_full = getattr(capture, "grab_full", None)
+            return grab_full is not None and self.recap.is_recap(grab_full())
+        except Exception as error:  # never let this get in the way of counting
+            log.warning("End-of-match check failed: %s", error)
+            return False
+
     def run(self) -> None:
         capture = self.capture_factory(self.area)
         try:
@@ -344,6 +372,8 @@ class WatchEngine(threading.Thread):
         detector = ChestDetector()
         remove_one = KeyEdge(self.remove_hotkey)
         pause_one = KeyEdge(self.pause_hotkey) if self.pause_hotkey is not None else None
+        match_one = KeyEdge(self.match_hotkey) if self.match_hotkey is not None else None
+        last_recap_check = 0.0
         was_focused = None
         reference = None
         lowest_similarity = 1.0
@@ -373,6 +403,8 @@ class WatchEngine(threading.Thread):
                 self.on_chest(-1, "hotkey")
             if pause_one is not None and pause_one.pressed() and focused:
                 self.on_pause()  # the window flips the pause state and tells this thread
+            if match_one is not None and match_one.pressed() and focused:
+                self.on_new_match()
 
             if self.paused.is_set():
                 if detector.armed:
@@ -419,6 +451,11 @@ class WatchEngine(threading.Thread):
                 black_since = None
             blank = black_since is not None and now - black_since >= self.BLACK_SECONDS
             set_state("black" if blank else "watching")
+
+            if self.recap is not None and now - last_recap_check >= 1.0:
+                last_recap_check = now
+                if self._recap_showing(capture):
+                    self.on_match_end()
 
             score = self.matcher.best_score(frame)
             seen = score >= self.matcher.threshold

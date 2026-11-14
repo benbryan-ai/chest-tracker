@@ -18,6 +18,8 @@ DEFAULTS = {
     "interact_keys": ["E"],
     "remove_key": "F10",
     "pause_key": "F9",
+    "match_key": "F8",
+    "overlay_show_match": True,
     "chime_enabled": False,
     "chime_volume": 0.6,
     "overlay_scale": 1.0,

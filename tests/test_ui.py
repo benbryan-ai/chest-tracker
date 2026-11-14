@@ -401,3 +401,89 @@ def test_the_overlay_says_when_it_is_paused(window):
     image = window.overlay.grab().toImage()
     assert not image.isNull()
     window.toggle_pause()
+
+
+def test_chests_count_toward_the_current_match_and_undo_takes_one_off(window):
+    for _ in range(3):
+        window.record_chest(1, "detected")
+    window.record_chest(-1, "hotkey")
+    assert window.matches.current == 2
+    assert window.overlay.match == 2
+    assert window.tracker.match_count.text() == "2"
+
+
+def test_a_new_match_saves_the_old_one_and_resets_the_count(window):
+    for _ in range(5):
+        window.record_chest(1, "detected")
+    window.finish_match("key")
+    assert window.matches.current == 0 and window.overlay.match == 0
+    assert [m["chests"] for m in window.matches.history] == [5]
+    assert "average 5.0" in window.tracker.match_summary.text()
+    assert window.stats.total == 5  # the lifetime total is untouched
+
+
+def test_the_end_screen_signal_finishes_the_match(window):
+    window.record_chest(1, "detected")
+    window.match_ended.emit()
+    assert window.matches.current == 0 and len(window.matches.history) == 1
+
+
+def test_a_new_match_with_no_chests_saves_nothing(window):
+    window.finish_match("button")
+    assert window.matches.history == []
+
+
+def test_the_engine_gets_the_match_key_and_end_screen_hooks(window, monkeypatch):
+    monkeypatch.setattr(ui, "WatchEngine", FakeEngine)
+    save_template(window)
+    window.restart_engine()
+    kwargs = FakeEngine.instances[-1].kwargs
+    assert kwargs["match_hotkey"] == ui.VK_F8
+    assert kwargs["on_new_match"] == window.new_match_pressed.emit
+    assert kwargs["on_match_end"] == window.match_ended.emit
+    assert kwargs["match_open"]() is False
+    window.record_chest(1, "detected")
+    assert kwargs["match_open"]() is True
+
+
+def test_a_bad_match_key_falls_back_to_f8(window, monkeypatch):
+    monkeypatch.setattr(ui, "WatchEngine", FakeEngine)
+    save_template(window)
+    window.settings.set(match_key="NOT-A-KEY")
+    window.restart_engine()
+    assert window.settings["match_key"] == "F8"
+
+
+def test_the_match_key_must_differ_from_the_other_keys(window, monkeypatch):
+    monkeypatch.setattr(ui, "WatchEngine", FakeEngine)
+    warned = refuse_keys(monkeypatch)
+    window.setup._save_match_key("F9")
+    window.setup._save_match_key("F10")
+    window.setup._save_match_key("E")
+    window.setup._save_pause_key("F8")
+    window.setup._save_remove_key("F8")
+    window.setup._save_key("F8")
+    assert len(warned) == 6
+    assert window.settings["match_key"] == "F8"
+
+
+def test_a_different_match_key_is_saved_and_used(window, monkeypatch):
+    monkeypatch.setattr(ui, "WatchEngine", FakeEngine)
+    save_template(window)
+    window.setup._save_match_key("F7")
+    assert window.settings["match_key"] == "F7"
+    assert FakeEngine.instances[-1].kwargs["match_hotkey"] == 0x76
+
+
+def test_the_overlay_match_line_can_be_turned_off_and_stays_off(window):
+    window.set_overlay_match(False)
+    assert window.overlay.show_match is False and window.settings["overlay_show_match"] is False
+
+
+def test_export_writes_the_history(window, monkeypatch, tmp_path):
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    target = tmp_path / "out.csv"
+    monkeypatch.setattr(ui.QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+    window.export_match_history()
+    assert target.read_text(encoding="utf-8-sig").splitlines()[1].endswith(",1")

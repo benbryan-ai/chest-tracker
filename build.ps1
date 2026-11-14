@@ -11,6 +11,8 @@ if (-not (Test-Path .venv-app\Scripts\python.exe)) { python -m venv .venv-app }
     --add-data "$PSScriptRoot\assets\icon.png;assets" `
     --add-data "$PSScriptRoot\assets\box_model.npz;assets" `
     --add-data "$PSScriptRoot\assets\prompt_word.png;assets" `
+    --add-data "$PSScriptRoot\assets\recap_play_again.png;assets" `
+    --add-data "$PSScriptRoot\assets\recap_return.png;assets" `
     --exclude-module tkinter `
     --distpath . --workpath build --specpath build `
     app.py

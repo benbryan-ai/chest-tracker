@@ -45,6 +45,8 @@ class ChestOverlay(QWidget):
         self.opacity = 1.0
         self.setFixedSize(BASE_WIDTH, BASE_HEIGHT)
         self.count = 0
+        self.match = 0
+        self.show_match = True
         self.paused = False
         self.positioning = False
         self.click_through = False
@@ -66,6 +68,14 @@ class ChestOverlay(QWidget):
 
     def set_paused(self, paused: bool) -> None:
         self.paused = paused
+        self.update()
+
+    def set_match(self, count: int) -> None:
+        self.match = count
+        self.update()
+
+    def set_match_visible(self, shown: bool) -> None:
+        self.show_match = shown
         self.update()
 
     def set_count(self, count: int, celebrate: bool = False) -> None:
@@ -174,6 +184,14 @@ class ChestOverlay(QWidget):
         large = QFont("Bahnschrift SemiBold Condensed", 27, QFont.Weight.Bold)
         painter.setFont(large)
         painter.drawText(14, 59, f"{self.count:,}")
+
+        if self.show_match:
+            painter.setPen(QColor(ASH))
+            painter.setFont(small)
+            painter.drawText(QRectF(BASE_WIDTH - 104, 8, 90, 18), Qt.AlignmentFlag.AlignRight, "THIS MATCH")
+            painter.setPen(QColor(GOLD_LIGHT if not self.paused else ASH))
+            painter.setFont(QFont("Bahnschrift SemiBold Condensed", 20, QFont.Weight.Bold))
+            painter.drawText(QRectF(BASE_WIDTH - 104, 32, 90, 32), Qt.AlignmentFlag.AlignRight, f"{self.match:,}")
 
         if self._flash > 0:
             painter.setPen(Qt.PenStyle.NoPen)
