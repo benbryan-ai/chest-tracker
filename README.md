@@ -80,8 +80,8 @@ To pause, press **F9** while Fortnite is focused or use **Pause tracking** in th
 The app can't see inside the game, so these rules are strong evidence rather than proof.
 
 - Holding your aim past the first second and then cancelling could still count.
-- The "moved on" rule counts a chest when the prompt returns to a new view. If you finish a search and then turn back to the same chest within 3 seconds, it is treated as a cancel and that chest is missed.
-- The prompt only says SEARCH, so anything else with the same prompt, possibly including ammo boxes, can count. See [Help tell chests from ammo boxes](#help-tell-chests-from-ammo-boxes).
+- A search that finishes makes the prompt vanish about a second after you press, so it counts right away, even if you turn or walk off at once. Searches that end any other way still use the slower confirm rule, which can miss a chest if you turn back to it within 3 seconds.
+- Ammo and fruit boxes are skipped by their colors, learned from example screenshots. It only skips when it is fairly sure, so an odd-looking box can still count (use undo), and a brand-new chest skin could in theory be skipped. The log says how chest-like each object looked.
 - Anyone with the webhook URL could post to the channel directly, so only share it with people you trust.
 - Controllers: only Xbox-style pads (or ones that present themselves as Xbox pads) work, and only for the interact button. The undo key is still a keyboard key. PlayStation pads need Steam Input or DS4Windows to look like an Xbox pad.
 
@@ -132,16 +132,16 @@ Only one person in your group needs to do this. Everyone else only needs the sha
 
 **Something else is wrong.** Check the log at `%APPDATA%\ChestTracker\chest-tracker.log`. It's useful to include in a bug report, and it doesn't contain your token or webhook URL.
 
-### Help tell chests from ammo boxes
+### Help improve the box filter
 
-Ammo boxes show the same SEARCH prompt, so the app can't tell them apart from chests yet. To gather evidence, the log records how each attempt went, for example:
+Each attempt is logged, for example:
 
 ```
-Attempt opened: 3.05s after pressing, key used for 1.31s, prompt gone 3.02s, lowest aim match 0.93, final match 0.95
-Undo pressed 4.2s after the last counted chest
+Attempt opened: 1.2s after pressing, key used for 0.1s, prompt gone 0.4s, lowest aim match 0.93, final match 0.95, prompt vanished 0.78s after pressing (steady view: True)
+Object looked 91% like a chest
 ```
 
-If you press undo after a false count, the log shows it right after the attempt. Send a few of these lines from chests and from ammo boxes in a bug report. If chests and boxes differ in how long the key is used or how long the prompt stays gone, the app can use that to tell them apart.
+If a box was counted, or a chest was skipped ("Not counted: looks like an ammo or fruit box"), send those log lines and a screenshot taken while the SEARCH prompt shows. To add examples yourself, put screenshots in `examples/chest/` and `examples/box/` and run `python tools/train_box_filter.py examples --keep`.
 
 ## Build from source
 
@@ -181,6 +181,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `gamepad.py` | Xbox-style controller buttons through XInput |
 | `bot.py`, `store.py` | The Discord bot and its database |
 | `ui.py`, `widgets.py`, `overlay.py` | The app window, animated chest and in-game count badge |
+| `boxfilter.py`, `tools/train_box_filter.py` | Skips ammo and fruit boxes by color, and the script that retrains it from screenshots |
 | `chime.py` | The optional counted-chest sound, generated in code |
 | `settings.py`, `protocol.py` | Saved settings and counts, and the rules for names, webhook links and messages |
 | `tests/` | The automated tests. They run on any OS, since the Windows calls are stubbed |

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from bot import BotRunner
+from boxfilter import load_bundled
 from chime import DEFAULT_VOLUME, MAX_VOLUME, MIN_VOLUME, Chime, clamp_volume
 from detection import CANCELLED, PENDING, PromptMatcher
 from fortnite_stats import FortniteStatsError, fetch_stats
@@ -1354,6 +1355,7 @@ class MainWindow(QMainWindow):
         self.current_state = "off"
         self.leaderboard_seen = None
         self.chime = Chime()
+        self.box_filter = load_bundled()  # skips ammo and fruit boxes; None keeps counting everything
         self.overlay = ChestOverlay()
         self.overlay.set_scale(self.settings["overlay_scale"])
         self.overlay.set_opacity(self.settings["overlay_opacity"])
@@ -1525,6 +1527,7 @@ class MainWindow(QMainWindow):
             matcher, interact, self.settings["search_area"],
             self.chest.emit, self.engine_state.emit, self.match_score.emit, self.attempt.emit,
             remove_hotkey=remove_code, pause_hotkey=pause_code, on_pause=self.pause_pressed.emit,
+            box_filter=self.box_filter,
         )
         if self.paused:
             self.engine.paused.set()  # stays paused through a settings change

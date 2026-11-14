@@ -19,6 +19,7 @@ import mss
 import numpy as np
 import requests
 
+from boxfilter import SKIP_BELOW
 from detection import CANCELLED, OPENED, PENDING, ChestDetector, PromptMatcher, scene_similarity, scene_thumb
 from gamepad import is_pad_name, shared_gamepad
 from protocol import format_delta, is_webhook_url
@@ -164,12 +165,15 @@ class ScreenCapture:
         self.area = area
         self.sct = mss.MSS()
         self.region = None
+        self.last_color: np.ndarray | None = None
 
     def refresh(self) -> None:
         self.region = search_region(foreground_monitor(self.sct), self.area)
 
     def grab(self) -> np.ndarray:
-        return cv2.cvtColor(np.asarray(self.sct.grab(self.region)), cv2.COLOR_BGRA2GRAY)
+        raw = np.asarray(self.sct.grab(self.region))
+        self.last_color = raw  # the same frame in color, for telling chests from boxes
+        return cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
 
     def close(self) -> None:
         self.sct.close()
@@ -297,8 +301,10 @@ class WatchEngine(threading.Thread):
         remove_hotkey: int = VK_F10,
         pause_hotkey: int | None = None,
         on_pause: Callable[[], None] = lambda: None,
+        box_filter=None,
     ):
         super().__init__(daemon=True)
+        self.box_filter = box_filter  # tells chests from ammo and fruit boxes; None = count everything
         self.matcher = matcher
         self.interact_used = interact_used
         self.area = area
@@ -316,6 +322,16 @@ class WatchEngine(threading.Thread):
 
     def stop(self) -> None:
         self.halt.set()
+
+    def _score_object(self, prompt_frame) -> float | None:
+        """Chest-likeness of the object by the prompt, or None if it can't be judged."""
+        if self.box_filter is None or prompt_frame is None:
+            return None
+        try:
+            return self.box_filter.chest_score(*prompt_frame)
+        except Exception as error:  # a filter problem must never stop chests being counted
+            log.warning("Box filter failed: %s", error)
+            return None
 
     def run(self) -> None:
         capture = self.capture_factory(self.area)
@@ -338,6 +354,8 @@ class WatchEngine(threading.Thread):
         last_score = 0.0
         black_since = None
         state = None
+        prompt_frame = None  # (color, gray) of the latest frame that showed the prompt
+        chest_score: float | None = None  # how chest-like the object of this attempt looked
 
         def set_state(new: str) -> None:
             nonlocal state
@@ -406,6 +424,8 @@ class WatchEngine(threading.Thread):
             seen = score >= self.matcher.threshold
             if seen:
                 last_prompt_at = now
+                color = getattr(capture, "last_color", None)
+                prompt_frame = (color, frame) if color is not None else None
             thumb = scene_thumb(frame)
             similarity = scene_similarity(reference, thumb) if reference is not None else 1.0
             lowest_similarity = min(lowest_similarity, similarity)
@@ -420,16 +440,24 @@ class WatchEngine(threading.Thread):
                 # Real numbers from real play, for telling chests from look-alikes later.
                 log.info(
                     "Attempt %s: %.2fs after pressing, key used for %.2fs, prompt gone %.2fs, "
-                    "lowest aim match %.2f, final match %.2f",
+                    "lowest aim match %.2f, final match %.2f, prompt vanished %.2fs after pressing "
+                    "(steady view: %s)",
                     event, now - attempt_started, max(0.0, last_key_at - attempt_started),
                     max(0.0, now - last_prompt_at), lowest_similarity, score,
+                    detector.vanish_delay, detector.vanished_steady,
                 )
                 reference = None
             if detector.armed and detector.attempt_id != attempt_id:
                 reference = thumb
                 lowest_similarity = 1.0
                 attempt_started = now
-            if event == OPENED:
+                chest_score = self._score_object(prompt_frame)
+            if event in (OPENED, CANCELLED) and chest_score is not None:
+                log.info("Object looked %.0f%% like a chest", chest_score * 100)
+            if event == OPENED and chest_score is not None and chest_score < SKIP_BELOW:
+                log.info("Not counted: looks like an ammo or fruit box")
+                self.on_attempt(CANCELLED)
+            elif event == OPENED:
                 last_count_at = now
                 self.on_chest(1, "detected")
             elif event in (PENDING, CANCELLED):

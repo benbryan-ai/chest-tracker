@@ -77,9 +77,13 @@ class ChestDetector:
     still aiming at the same spot, or they looked away while searching, it was
     cancelled and nothing counts.
 
-    One exception keeps back-to-back chests from being missed: if the prompt comes
-    back only after the view has turned to somewhere new, the player has moved on
-    to another target, so the finished search still counts.
+    Two exceptions keep chests from being missed. If the prompt comes back only
+    after the view has turned to somewhere new, the player has moved on to another
+    target, so the finished search still counts. And a search that finishes makes
+    the prompt vanish about a second after the press (never instantly, never much
+    later) while the view is still steady: that is the chest opening, so it counts
+    right away instead of waiting out the confirm time, when turning away or
+    reaching the next chest could make a finished search look cancelled.
     """
 
     PRESS_WINDOW = 0.25  # a press this soon after the prompt still applies to it
@@ -88,6 +92,8 @@ class ChestDetector:
     AIM_SECONDS = 1.0  # must keep looking at the chest this long after pressing
     CONFIRM_SECONDS = 3.0  # prompt must stay gone this long, so a cancel can show itself
     COOLDOWN = 0.5  # a stray press right after counting can't start a new attempt
+    VANISH_MIN = 0.5  # a search that finishes takes the prompt away this long after the press...
+    VANISH_MAX = 1.5  # ...and not later than this (measured: 0.64 to 1.15 s, typically 0.78)
 
     def __init__(self):
         self._cooldown_until = 0.0
@@ -102,6 +108,9 @@ class ChestDetector:
         self._gone_since: float | None = None
         self._looked_away = False
         self._announced = False
+        self._steady_at_vanish = True
+        self.vanish_delay = 0.0  # seconds from press to the prompt vanishing, for the log
+        self.vanished_steady = True  # whether the view was steady when it vanished
 
     def _finish(self, event: str) -> str:
         self.armed = False
@@ -147,12 +156,15 @@ class ChestDetector:
                 )
                 return self._finish(OPENED if moved_on else CANCELLED)
             self._gone_since = None
+            self._steady_at_vanish = not looked_away
             if now - self._last_key > self.RELEASE_GRACE:
                 return self._finish(CANCELLED)
             return None
 
         if self._gone_since is None:
             self._gone_since = self._last_seen
+            # The first frame without the prompt: was the view still steady as it went?
+            self._steady_at_vanish = self._steady_at_vanish and not looked_away
 
         gone_for = now - self._gone_since
         if gone_for >= self.CONFIRM_SECONDS:
@@ -162,5 +174,14 @@ class ChestDetector:
             return self._finish(OPENED)
         if gone_for >= self.FLICKER_SECONDS and not self._announced:
             self._announced = True
+            self.vanish_delay = self._gone_since - self._pressed_at
+            self.vanished_steady = self._steady_at_vanish
+            if (
+                self.VANISH_MIN <= self.vanish_delay <= self.VANISH_MAX
+                and self._steady_at_vanish
+                and not self._looked_away
+            ):
+                self._cooldown_until = now + self.COOLDOWN
+                return self._finish(OPENED)
             return PENDING
         return None

@@ -905,3 +905,118 @@ def test_the_pause_key_still_works_while_paused(monkeypatch):
     engine.stop()
     engine.join(2)
     assert pauses == [1]
+
+
+# --- finished searches are counted when the prompt vanishes about a second after the press ---
+
+HELD = [(True, False)] * 10  # the prompt stays up through the search: 0.8 s at the test frame rate
+TURN = [(False, False, True)] * 45
+
+
+def test_a_finished_search_counts_even_if_the_player_turns_away_straight_after():
+    # Before: the turn inside the confirm window made this look like a cancel and it was lost.
+    assert play(PROMPT + [(True, True)] + HELD + [(False, False)] * 6 + TURN) == 1
+
+
+def test_a_finished_search_counts_before_the_confirm_time_is_up():
+    detector = ChestDetector()
+    frames = PROMPT + [(True, True)] + HELD + [(False, False)] * 8
+    events = [detector.update(100 + i * 0.08, *f) for i, f in enumerate(frames)]
+    assert OPENED in events
+    assert 0.5 <= detector.vanish_delay <= 1.5 and detector.vanished_steady
+
+
+def test_a_prompt_that_vanishes_while_the_view_turns_is_not_a_finished_search():
+    assert play(PROMPT + [(True, True)] + HELD + [(False, False, True)] * 45) == 0
+
+
+def test_a_prompt_that_vanishes_too_soon_after_the_press_is_not_counted_early():
+    quick = PROMPT + [(True, True)] + [(True, False)] * 2 + [(False, False)] * 6 + TURN
+    assert play(quick) == 0
+
+
+def test_a_prompt_that_vanishes_much_later_falls_back_to_the_old_rule():
+    held_long = [(True, True)] * 20  # key kept down 1.6 s: past the window for counting early
+    detector = ChestDetector()
+    frames = PROMPT + held_long + [(False, False)] * 8
+    events = [detector.update(100 + i * 0.08, *f) for i, f in enumerate(frames)]
+    assert OPENED not in events  # not counted early: only the old confirm rule can count it
+    assert play(PROMPT + held_long + GONE) == 1
+
+
+def test_a_finished_search_is_counted_once_not_twice():
+    assert play(PROMPT + [(True, True)] + HELD + GONE) == 1
+
+
+def test_vault_chests_back_to_back_each_count():
+    one = PROMPT + [(True, True)] + HELD + [(False, False)] * 10
+    two = [(True, False, True)] * 3 + [(True, True)] + HELD + [(False, False)] * 10
+    assert play(one + two + TURN) == 2
+
+
+# --- the box filter in the engine ---
+
+class ColorCapture(FakeCapture):
+    def grab(self):
+        frame = super().grab()
+        self.last_color = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        return frame
+
+
+class FakeFilter:
+    def __init__(self, score=None, error=False):
+        self.score, self.error, self.calls = score, error, 0
+
+    def chest_score(self, color, gray, near=None):
+        self.calls += 1
+        if self.error:
+            raise RuntimeError("boom")
+        return self.score
+
+
+def run_with_filter(box_filter, quick_confirm_active=True):
+    template, with_prompt, without, _ = prompt_scenes()
+
+    class Capture(ColorCapture):
+        frames = [with_prompt] * 4 + [without]
+
+    engine, chests, _, attempts, _ = make_engine(
+        PromptMatcher([template], 0.8), Capture, presses(), box_filter=box_filter
+    )
+    engine.start()
+    time.sleep(1.6)
+    engine.stop()
+    engine.join(2)
+    return chests, attempts
+
+
+def test_a_confident_box_is_not_counted(quick_confirm):
+    box_filter = FakeFilter(0.05)
+    chests, attempts = run_with_filter(box_filter)
+    assert chests == []
+    assert box_filter.calls == 1 and CANCELLED in attempts
+
+
+def test_a_chest_is_counted(quick_confirm):
+    chests, _ = run_with_filter(FakeFilter(0.9))
+    assert chests == [(1, "detected")]
+
+
+def test_an_unsure_filter_counts_the_chest(quick_confirm):
+    chests, _ = run_with_filter(FakeFilter(0.4))
+    assert chests == [(1, "detected")]
+
+
+def test_a_filter_that_cannot_decide_counts_the_chest(quick_confirm):
+    chests, _ = run_with_filter(FakeFilter(None))
+    assert chests == [(1, "detected")]
+
+
+def test_a_broken_filter_never_stops_counting(quick_confirm):
+    chests, _ = run_with_filter(FakeFilter(error=True))
+    assert chests == [(1, "detected")]
+
+
+def test_no_filter_counts_everything(quick_confirm):
+    chests, _ = run_with_filter(None)
+    assert chests == [(1, "detected")]

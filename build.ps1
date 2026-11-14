@@ -9,6 +9,8 @@ if (-not (Test-Path .venv-app\Scripts\python.exe)) { python -m venv .venv-app }
     --name "Chest-Tracker" `
     --icon "$PSScriptRoot\assets\icon.ico" `
     --add-data "$PSScriptRoot\assets\icon.png;assets" `
+    --add-data "$PSScriptRoot\assets\box_model.npz;assets" `
+    --add-data "$PSScriptRoot\assets\prompt_word.png;assets" `
     --exclude-module tkinter `
     --distpath . --workpath build --specpath build `
     app.py
