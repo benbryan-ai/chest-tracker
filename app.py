@@ -1,7 +1,9 @@
 """Chest Tracker: starts the app."""
 
 import logging
+import os
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -9,8 +11,10 @@ from PySide6.QtGui import QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
+import updater
 from settings import data_dir, import_old_setup
 from ui import MainWindow
+from version import VERSION
 
 INSTANCE_NAME = "ChestTrackerSingleInstance"
 
@@ -52,12 +56,19 @@ def main() -> int:
     app.setApplicationName("Chest Tracker")
     app.setQuitOnLastWindowClosed(False)
 
+    if os.environ.pop("CHEST_TRACKER_UPDATED", None):
+        # Just installed an update: the old copy is still closing. Give it a few seconds to let go.
+        deadline = time.monotonic() + 10
+        while already_running() and time.monotonic() < deadline:
+            time.sleep(0.3)
     if already_running():
         return 0
 
     folder = data_dir()
     set_up_logging(folder)
     log = logging.getLogger("chest-tracker")
+    if updater.running_exe():
+        updater.clean_up_leftovers(updater.running_exe())
     if import_old_setup(app_folder(), folder):
         log.info("Imported the old setup from %s", app_folder())
 
@@ -71,7 +82,7 @@ def main() -> int:
     server.newConnection.connect(window.bring_to_front)
     server.listen(INSTANCE_NAME)
 
-    log.info("App started")
+    log.info("App started (version %s)", VERSION)
     code = app.exec()
     log.info("App closed")
     return code

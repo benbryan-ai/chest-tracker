@@ -29,6 +29,7 @@ DEFAULTS = {
     "match_webhook_url": "",
     "match_post": True,
     "party_code": "",
+    "update_mode": "notify",
     "bot_token": "",
     "channel_id": "",
     "match_channel_id": "",

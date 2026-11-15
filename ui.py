@@ -31,6 +31,8 @@ from matches import MatchLog
 from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
 from protocol import MAX_NAME_LENGTH, name_problem, normalize_party, party_problem, is_webhook_url
 from recap import RecapDetector
+import updater
+from version import VERSION
 from settings import Settings, Stats
 from store import Store
 from watcher import (
@@ -49,6 +51,7 @@ STYLE = f"""
 QMainWindow, QDialog, #page, QScrollArea, #scrollBody {{ background: {NIGHT}; }}
 QScrollArea {{ border: none; }}
 #topbar {{ background: {NIGHT}; border-bottom: 1px solid {LINE}; }}
+#updateBanner {{ background: {DUSK}; border-bottom: 1px solid {GOLD_DEEP}; }}
 #brand {{ font-family: "Bahnschrift SemiBold Condensed"; font-size: 23px; }}
 #tab {{ background: transparent; border: none; border-bottom: 3px solid transparent; border-radius: 0;
         padding: 16px 16px 13px 16px; color: {ASH}; font-size: 15px; font-weight: 500; }}
@@ -701,6 +704,14 @@ class Step(QWidget):
         p.drawLine(15, 34, 15, self.height())
 
 
+UPDATE_MODES = (
+    ("notify", "Tell me when there's a new version"),
+    ("auto", "Install new versions automatically"),
+    ("off", "Don't check for updates"),
+)
+UPDATE_CHECK_HOURS = 6
+
+
 class SetupPage(QWidget):
     webhook_result = Signal(bool, str)
 
@@ -905,6 +916,23 @@ class SetupPage(QWidget):
             layout, "Volume", 100 * MIN_VOLUME, 100 * MAX_VOLUME,
             100 * clamp_volume(settings["chime_volume"]), "{}%", self._save_chime_volume,
         )
+        layout.addSpacing(10)
+        layout.addWidget(label("Updates", "small"))
+        self.version_label = label(f"You have version {VERSION}.", "muted")
+        layout.addWidget(self.version_label)
+        update_row = QHBoxLayout()
+        self.update_mode = QComboBox()
+        for key, text in UPDATE_MODES:
+            self.update_mode.addItem(text, key)
+        self.update_mode.setCurrentIndex(max(0, self.update_mode.findData(settings["update_mode"])))
+        self.update_mode.currentIndexChanged.connect(self._save_update_mode)
+        update_row.addWidget(self.update_mode, 1)
+        self.update_check = QPushButton("Check for updates")
+        self.update_check.clicked.connect(lambda: window.check_for_updates(manual=True))
+        update_row.addWidget(self.update_check)
+        layout.addLayout(update_row)
+        self.update_status = label("", "muted", wrap=True)
+        layout.addWidget(self.update_status)
         layout.addStretch(1)
         self.refresh_gallery()
         self.refresh_steps()
@@ -1119,6 +1147,14 @@ class SetupPage(QWidget):
         if value != self.window_.settings["match_threshold"]:
             self.window_.settings.set(match_threshold=value)
             self.window_.restart_engine()
+
+    def _save_update_mode(self) -> None:
+        self.window_.settings.set(update_mode=self.update_mode.currentData())
+        self.window_.schedule_update_checks()
+
+    def show_update_status(self, text: str, problem: bool = False) -> None:
+        color = EMBER if problem else ASH
+        self.update_status.setText(f'<span style="color:{color}">{text}</span>' if text else "")
 
     def _show_match_problem(self, text: str | None) -> None:
         self.match_status.setText(f'<span style="color:{EMBER}">{text}</span>' if text else "")
@@ -1490,6 +1526,10 @@ class MainWindow(QMainWindow):
     pause_pressed = Signal()
     new_match_pressed = Signal()
     match_ended = Signal()
+    update_checked = Signal(object, bool)  # the result, and whether the person asked
+    update_progress = Signal(float)
+    update_ready = Signal(object, object)  # the release and its downloaded file
+    update_failed = Signal(str)
 
     def __init__(self, folder: Path, icon: QIcon):
         super().__init__()
@@ -1564,6 +1604,24 @@ class MainWindow(QMainWindow):
         self.pill = Pill()
         top.addWidget(self.pill)
         rows.addWidget(topbar)
+        self.banner = QFrame()
+        self.banner.setObjectName("updateBanner")
+        banner_row = QHBoxLayout(self.banner)
+        banner_row.setContentsMargins(20, 8, 20, 8)
+        self.banner_text = label("", "", wrap=True)
+        banner_row.addWidget(self.banner_text, 1)
+        self.banner_notes = QPushButton("What's new")
+        self.banner_notes.clicked.connect(self.show_update_notes)
+        banner_row.addWidget(self.banner_notes)
+        self.banner_install = QPushButton("Install and restart")
+        self.banner_install.setObjectName("primary")
+        self.banner_install.clicked.connect(self.install_update)
+        banner_row.addWidget(self.banner_install)
+        self.banner_later = QPushButton("Later")
+        self.banner_later.clicked.connect(self.banner.hide)
+        banner_row.addWidget(self.banner_later)
+        self.banner.hide()
+        rows.addWidget(self.banner)
         rows.addWidget(self.stack, 1)
 
         self.chest.connect(self.record_chest)
@@ -1575,6 +1633,12 @@ class MainWindow(QMainWindow):
         self.match_score.connect(self.setup.show_score)
         self.delivery.connect(self._on_delivery)
         self.bot_status.connect(self._on_bot_status)
+        self.update_checked.connect(self._on_update_checked)
+        self.update_progress.connect(self._on_update_progress)
+        self.update_ready.connect(self._on_update_ready)
+        self.update_failed.connect(self._on_update_failed)
+        self.found_update = None
+        self.installing = False
 
         self.sender = Sender(
             self.settings["webhook_url"], self.settings["player_name"],
@@ -1606,6 +1670,11 @@ class MainWindow(QMainWindow):
         self.overlay_timer.start(200)
         self._refresh()
         self._sync_overlay()
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(lambda: self.check_for_updates(manual=False))
+        self.auto_timer = QTimer(self)
+        self.auto_timer.timeout.connect(self._try_auto_install)
+        self.schedule_update_checks()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -1631,6 +1700,125 @@ class MainWindow(QMainWindow):
             if reason == QSystemTrayIcon.ActivationReason.Trigger else None
         )
         self.tray.show()
+
+    # --- updates ---
+
+    def schedule_update_checks(self) -> None:
+        """Checks soon after start and then every few hours, unless the person turned checking off."""
+        self.update_timer.stop()
+        if self.settings["update_mode"] == "off":
+            return
+        self.update_timer.start(UPDATE_CHECK_HOURS * 3600 * 1000)
+        QTimer.singleShot(8000, self._first_update_check)
+
+    def _first_update_check(self) -> None:
+        if self.settings["update_mode"] != "off":
+            self.check_for_updates(manual=False)
+
+    def check_for_updates(self, manual: bool) -> None:
+        if self.installing:
+            return
+        if manual:
+            self.setup.update_check.setEnabled(False)
+            self.setup.show_update_status("Checking\u2026")
+        threading.Thread(
+            target=lambda: self.update_checked.emit(updater.check_latest(), manual), daemon=True, name="update-check"
+        ).start()
+
+    def _on_update_checked(self, result, manual: bool) -> None:
+        self.setup.update_check.setEnabled(True)
+        if result.status == "error":
+            log.info("Update check failed: %s", result.message)
+            if manual:
+                self.setup.show_update_status(result.message, problem=True)
+            return
+        if result.status == "current":
+            if manual:
+                self.setup.show_update_status(f"You're up to date (version {VERSION}).")
+            return
+        release = result.release
+        self.found_update = release
+        self.setup.show_update_status(f"Version {release.version} is available.")
+        log.info("Update available: %s", release.version)
+        self.banner_text.setText(f"<b>Version {release.version}</b> is available. You have {VERSION}.")
+        self.banner_install.setEnabled(True)
+        self.banner_install.setText("Install and restart")
+        self.banner.show()
+        if self.settings["update_mode"] == "auto" and not self.auto_timer.isActive():
+            self.auto_timer.start(30_000)
+            self._try_auto_install()
+
+    def show_update_notes(self) -> None:
+        release = self.found_update
+        if release:
+            QMessageBox.information(self, f"What's new in {release.version}", release.notes or "No notes for this release.")
+
+    def update_is_safe(self) -> bool:
+        """An automatic install waits for a quiet moment: no match with chests, and Fortnite not in front."""
+        return self.matches.current == 0 and not fortnite_focused() and not self.installing
+
+    def _try_auto_install(self) -> None:
+        if self.settings["update_mode"] != "auto" or self.found_update is None or updater.running_exe() is None:
+            self.auto_timer.stop()  # not automatic, or running from source: nothing to replace
+            return
+        if self.update_is_safe():
+            self.auto_timer.stop()
+            self.install_update()
+
+    def install_update(self) -> None:
+        release = self.found_update
+        if release is None or self.installing:
+            return
+        exe = updater.running_exe()
+        if exe is None:
+            QDesktopServices.openUrl(QUrl(release.page))  # from source: the release page is the way
+            return
+        self.installing = True
+        self.banner_install.setEnabled(False)
+        self.banner_text.setText(f"Downloading version {release.version}\u2026")
+        self.banner.show()
+        target = exe.with_name(exe.name + ".new")
+
+        def work() -> None:
+            try:
+                updater.download_update(release, target, on_progress=self.update_progress.emit)
+            except updater.UpdateError as error:
+                self.update_failed.emit(str(error))
+                return
+            except Exception as error:  # nothing unexpected should leave the banner stuck
+                log.warning("Update download failed: %s", error)
+                self.update_failed.emit("The update couldn't be downloaded.")
+                return
+            self.update_ready.emit(release, target)
+
+        threading.Thread(target=work, daemon=True, name="update-download").start()
+
+    def _on_update_progress(self, fraction: float) -> None:
+        if self.installing and self.found_update:
+            self.banner_text.setText(f"Downloading version {self.found_update.version}\u2026 {round(fraction * 100)}%")
+
+    def _on_update_failed(self, message: str) -> None:
+        self.installing = False
+        log.warning("Update failed: %s", message)
+        self.banner_install.setEnabled(True)
+        self.banner_install.setText("Try again")
+        self.banner_text.setText(f"<span style='color:{EMBER}'>{message}</span>")
+        self.banner.show()
+        self.setup.show_update_status(message, problem=True)
+
+    def _on_update_ready(self, release, downloaded) -> None:
+        exe = updater.running_exe()
+        try:
+            updater.install_update(exe, downloaded)
+        except updater.UpdateError as error:
+            self._on_update_failed(str(error))
+            return
+        log.info("Updated to %s, restarting", release.version)
+        try:
+            updater.relaunch(exe)
+        except OSError as error:
+            log.error("Couldn't start the new version: %s", error)
+        self.quit_app()
 
     def finish_match(self, how: str) -> None:
         """Close the current match (end screen seen, new-match key or button) and start the next."""

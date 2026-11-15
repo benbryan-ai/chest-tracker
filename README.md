@@ -83,6 +83,15 @@ A match ends when the app sees Fortnite's end-of-match screen (the one with **Re
 
 The Tracker page shows the average, median and best chests per match. Matches with no chests are never saved, so they don't pull the average down. **Export history** saves the matches as a CSV file for a spreadsheet. A match still open when the app starts is carried on if it began within two hours, and closed otherwise. Only matches from this version onward are counted.
 
+### Updates
+
+In **Setup**, under **Updates**, choose what the app does about new versions:
+- **Tell me when there's a new version** (the default): a banner appears with **What's new** and **Install and restart**.
+- **Install new versions automatically**: installs when no match with chests is open and Fortnite isn't the active window, then restarts.
+- **Don't check for updates**: nothing is checked.
+
+**Check for updates** checks right away. The app asks GitHub for the latest release, so it only works if this project's releases are public. A download is only installed if it matches the checksum GitHub lists for it, and the old version is put back if the install fails. The exe isn't code-signed, so Windows may show its "protected your PC" screen. If you run the app from source, the update button opens the releases page instead.
+
 ### Known limits
 
 The app can't see inside the game, so these rules are strong evidence rather than proof.
@@ -128,7 +137,7 @@ A player who opened no chests that match has no line, so they aren't in the repo
 
 **What the app does:** it takes screenshots while Fortnite is the active window and reads which keys and scroll input you use. It doesn't touch Fortnite's memory or files, and it doesn't press anything for you.
 
-**What it sends:** Discord is optional; if configured, the app sends your player name and chest count to your webhook, and, if you set the match reports webhook, your chests per match and party code. If you use Fortnite Stats, the app sends the player name and Fortnite-API key to Fortnite-API.com over HTTPS when you select **Refresh stats**. The key and most recent result are stored in the local settings file; the key is not sent to Discord. Screenshots stay in memory and are thrown away. The only image saved for detection is the small prompt picture you select, on your own PC.
+**What it sends:** The app asks GitHub for the latest release now and then (unless you turn update checks off); nothing about you is sent. Discord is optional; if configured, the app sends your player name and chest count to your webhook, and, if you set the match reports webhook, your chests per match and party code. If you use Fortnite Stats, the app sends the player name and Fortnite-API key to Fortnite-API.com over HTTPS when you select **Refresh stats**. The key and most recent result are stored in the local settings file; the key is not sent to Discord. Screenshots stay in memory and are thrown away. The only image saved for detection is the small prompt picture you select, on your own PC.
 
 **Where your data lives:** your settings, API key, webhook URL and bot token are in `%APPDATA%\ChestTracker`, not in the `.exe`.
 
@@ -202,13 +211,19 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `bot.py`, `store.py` | The Discord bot and its database |
 | `ui.py`, `widgets.py`, `overlay.py` | The app window, animated chest and in-game count badge |
 | `boxfilter.py`, `tools/train_box_filter.py` | Skips ammo and fruit boxes by color, and the script that retrains it from screenshots |
+| `updater.py`, `version.py` | Checks GitHub for new releases and installs them; the version number |
 | `reports.py` | The group game report: waits for teammates and ranks them |
 | `matches.py`, `recap.py` | Chests per match and its history, and the end-of-match screen check |
 | `chime.py` | The optional counted-chest sound, generated in code |
 | `settings.py`, `protocol.py` | Saved settings and counts, and the rules for names, webhook links and messages |
 | `tests/` | The automated tests. They run on any OS, since the Windows calls are stubbed |
 
-To publish a release, push a tag such as `v1.0.0`. The **Release** workflow builds `Chest-Tracker.exe` and attaches it to a GitHub release, which is what the download link serves.
+To publish a release:
+1. Change `VERSION` in `version.py` (for example to `1.2.0`).
+2. Add a `## v1.2.0` section at the top of `RELEASE_NOTES.md` (below its intro) listing what changed. This becomes the release text and the app's "What's new".
+3. Commit and push, then tag it: `git tag v1.2.0` and `git push origin v1.2.0`.
+
+The **Release** workflow checks the tag matches `version.py` and that the notes section exists, runs the tests, builds `Chest-Tracker.exe` and attaches it to a GitHub release, which is what the download link and the in-app updater serve.
 | `fortnite_stats.py` | The optional Fortnite-API player-stats lookup |
 
 ## License
