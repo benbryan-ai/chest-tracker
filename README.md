@@ -112,11 +112,23 @@ Only one person in your group needs to do this. Everyone else only needs the sha
 6. In Discord, turn on **User Settings > Advanced > Developer Mode**, then right-click the channel and select **Copy Channel ID**.
 7. In the app's **Group** page, select **Show bot connection**, paste the token and channel ID, and select **Start bot**.
 
+### Match reports and group game reports
+
+Optional, and separate from the chest log above. Match reports go to a second webhook, so they can go to a different channel.
+
+1. Create a second channel, such as `#match-reports`, and add a webhook to it (Edit Channel, Integrations, Webhooks). Everyone who wants to post matches pastes that URL under **Match reports** in Setup, next to the first webhook. You also need a player name, as for the chest log.
+2. When a match ends, the app posts one line, for example `14 chests this match`. Tick off **Post each match to Discord** if you'd rather not share your matches, for example when you play solo. Your match history stays on your PC either way.
+3. For a **group game report**, everyone in the squad enters the same **party code** in Setup (3 to 12 letters or numbers, such as `SQUAD42`). The line then carries the code.
+4. The person running the bot pastes the match channel's ID into **Match reports channel ID** on the Group page, and the bot needs **View Channels** and **Send Messages** there. If it's a different channel than the first, make sure the bot can see both.
+5. After the first player's line arrives, the bot waits 3 minutes for the rest of the team (or until 4 players have reported), then posts one report with each player's chests, the team total and who opened the most. It needs at least 2 players. The report is only built while the bot is running, and a report that is pending when the bot stops isn't posted.
+
+A player who opened no chests that match has no line, so they aren't in the report.
+
 ## Privacy and anti-cheat
 
 **What the app does:** it takes screenshots while Fortnite is the active window and reads which keys and scroll input you use. It doesn't touch Fortnite's memory or files, and it doesn't press anything for you.
 
-**What it sends:** Discord is optional; if configured, the app sends your player name and chest count to your webhook. If you use Fortnite Stats, the app sends the player name and Fortnite-API key to Fortnite-API.com over HTTPS when you select **Refresh stats**. The key and most recent result are stored in the local settings file; the key is not sent to Discord. Screenshots stay in memory and are thrown away. The only image saved for detection is the small prompt picture you select, on your own PC.
+**What it sends:** Discord is optional; if configured, the app sends your player name and chest count to your webhook, and, if you set the match reports webhook, your chests per match and party code. If you use Fortnite Stats, the app sends the player name and Fortnite-API key to Fortnite-API.com over HTTPS when you select **Refresh stats**. The key and most recent result are stored in the local settings file; the key is not sent to Discord. Screenshots stay in memory and are thrown away. The only image saved for detection is the small prompt picture you select, on your own PC.
 
 **Where your data lives:** your settings, API key, webhook URL and bot token are in `%APPDATA%\ChestTracker`, not in the `.exe`.
 
@@ -190,6 +202,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `bot.py`, `store.py` | The Discord bot and its database |
 | `ui.py`, `widgets.py`, `overlay.py` | The app window, animated chest and in-game count badge |
 | `boxfilter.py`, `tools/train_box_filter.py` | Skips ammo and fruit boxes by color, and the script that retrains it from screenshots |
+| `reports.py` | The group game report: waits for teammates and ranks them |
 | `matches.py`, `recap.py` | Chests per match and its history, and the end-of-match screen check |
 | `chime.py` | The optional counted-chest sound, generated in code |
 | `settings.py`, `protocol.py` | Saved settings and counts, and the rules for names, webhook links and messages |

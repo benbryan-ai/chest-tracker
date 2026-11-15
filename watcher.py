@@ -22,7 +22,7 @@ import requests
 from boxfilter import SKIP_BELOW
 from detection import CANCELLED, OPENED, PENDING, ChestDetector, PromptMatcher, scene_similarity, scene_thumb
 from gamepad import is_pad_name, shared_gamepad
-from protocol import format_delta, is_webhook_url
+from protocol import format_delta, format_match, is_webhook_url
 from settings import read_json
 from wheel import WheelListener
 
@@ -274,6 +274,91 @@ class Sender:
                 delay = self.send_once()
             # Space messages out so a burst of chests can't hit Discord's rate limit.
             time.sleep(1)
+
+
+class MatchPoster:
+    """Posts one line per finished match to the match-reports webhook, keeping unsent ones on disk."""
+
+    MAX_QUEUE = 50
+
+    def __init__(self, webhook_url: str, player: str, queue_path: Path, on_result=None):
+        self.url = webhook_url
+        self.player = player
+        self.path = queue_path
+        self.on_result = on_result or (lambda ok, message: None)
+        self.lock = threading.Lock()
+        self.wake = threading.Event()
+        self.queue: list[dict] = []
+        saved = read_json(self.path)
+        if saved and isinstance(saved.get("queue"), list):
+            for item in saved["queue"]:
+                try:
+                    self.queue.append({"chests": int(item["chests"]), "party": str(item.get("party", ""))})
+                except (KeyError, TypeError, ValueError):
+                    continue
+            self.queue = self.queue[-self.MAX_QUEUE :]
+
+    def add(self, chests: int, party: str = "") -> None:
+        with self.lock:
+            self.queue = (self.queue + [{"chests": chests, "party": party}])[-self.MAX_QUEUE :]
+            self._save()
+        self.wake.set()
+
+    def _save(self) -> None:
+        temp = self.path.with_suffix(".tmp")
+        temp.write_text(json.dumps({"queue": self.queue}))
+        temp.replace(self.path)
+
+    def send_once(self) -> float:
+        """Try to post the oldest waiting match. Returns seconds to wait (0 = nothing left to do)."""
+        with self.lock:
+            if not self.queue:
+                return 0.0
+            item = dict(self.queue[0])
+        if not self.url or not self.player:
+            return 15.0
+        try:
+            response = requests.post(
+                self.url,
+                params={"wait": "true"},
+                json={
+                    "username": self.player,
+                    "content": format_match(item["chests"], item["party"]),
+                    "allowed_mentions": {"parse": []},
+                },
+                timeout=10,
+                allow_redirects=False,
+            )
+        except requests.RequestException as error:
+            log.warning("Can't reach Discord for the match post: %s", error.__class__.__name__)
+            self.on_result(False, "Can't reach Discord. Match posts will keep trying.")
+            return 15.0
+        if response.status_code == 429:
+            try:
+                wait = float(response.json().get("retry_after", 5))
+            except (ValueError, AttributeError):
+                wait = 5.0
+            return wait + 0.1
+        if not response.ok:
+            log.warning("Discord refused the match post: HTTP %s", response.status_code)
+            self.on_result(False, Sender._refusal_message(response))
+            return 60.0
+        with self.lock:
+            if self.queue and self.queue[0] == item:
+                self.queue.pop(0)
+            self._save()
+            more = bool(self.queue)
+        self.on_result(True, "")
+        return 1.0 if more else 0.0
+
+    def run_forever(self) -> None:
+        while True:
+            self.wake.wait()
+            self.wake.clear()
+            delay = self.send_once()
+            while delay:
+                time.sleep(delay)
+                delay = self.send_once()
 
 
 def check_webhook(url: str) -> tuple[bool, str]:

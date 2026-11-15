@@ -48,3 +48,38 @@ def is_webhook_url(url: str) -> bool:
         and (parts.hostname or "").lower() in _WEBHOOK_HOSTS
         and parts.path.startswith("/api/webhooks/")
     )
+
+
+# --- match posts: one line per finished match, and the party code that groups players ---
+
+_MATCH_PATTERN = re.compile(
+    r"\U0001F3AE (\d+) chests? this match(?: · party ([A-Z0-9]{3,12}))?"
+)
+PARTY_PATTERN = re.compile(r"[A-Z0-9]{3,12}")
+
+
+def normalize_party(code: str) -> str:
+    """A party code as it is shared: upper case, no spaces."""
+    return "".join(code.split()).upper()
+
+
+def party_problem(code: str) -> str | None:
+    """Why this party code can't be used, or None if it is fine (empty means no party)."""
+    code = normalize_party(code)
+    if not code or PARTY_PATTERN.fullmatch(code):
+        return None
+    return "Use 3 to 12 letters or numbers, with no spaces or symbols."
+
+
+def format_match(chests: int, party: str = "") -> str:
+    text = f"\U0001F3AE {chests} chest{'' if chests == 1 else 's'} this match"
+    party = normalize_party(party)
+    return f"{text} · party {party}" if party else text
+
+
+def parse_match(content: str) -> tuple[int, str] | None:
+    """(chests, party code or "") from a match post, or None for anything else."""
+    found = _MATCH_PATTERN.fullmatch(content.strip())
+    if not found:
+        return None
+    return int(found.group(1)), found.group(2) or ""

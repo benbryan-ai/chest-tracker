@@ -10,7 +10,8 @@ from pathlib import Path
 import discord
 from discord import app_commands
 
-from protocol import parse_delta
+from protocol import parse_delta, parse_match
+from reports import GroupReports, format_report
 from store import Store
 
 log = logging.getLogger("chest-tracker")
@@ -28,8 +29,22 @@ def ingest(store: Store, message) -> bool:
     )
 
 
+def collect_match(reports: GroupReports, message, now: float) -> bool:
+    """Note a party match post from a webhook. Returns True if it joins a group game."""
+    if message.webhook_id is None:
+        return False
+    parsed = parse_match(message.content)
+    if parsed is None or not parsed[1]:
+        return False  # not a match post, or a solo one: that line is already its own summary
+    reports.add(parsed[1], message.author.name, parsed[0], now)
+    return True
+
+
 class ChestBot(discord.Client):
-    def __init__(self, store: Store, channel_id: int, on_status: Callable[[str, str], None]):
+    def __init__(
+        self, store: Store, channel_id: int, on_status: Callable[[str, str], None],
+        match_channel_id: int | None = None,
+    ):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.guild_messages = True
@@ -37,6 +52,10 @@ class ChestBot(discord.Client):
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.store = store
         self.channel_id = channel_id
+        # The same channel for both would send every chest post down the wrong path.
+        self.match_channel_id = match_channel_id if match_channel_id != channel_id else None
+        self.reports = GroupReports()
+        self._report_task: asyncio.Task | None = None
         self.on_status = on_status
         self.tree = app_commands.CommandTree(self)
         self.synced = False
@@ -51,6 +70,8 @@ class ChestBot(discord.Client):
                 await self.tree.sync(guild=channel.guild)
                 self.synced = True
             await self.catch_up(channel)
+            if self.match_channel_id and self._report_task is None:
+                self._report_task = asyncio.create_task(self._post_reports())
         except discord.NotFound:
             self.on_status("problem", "Channel not found. Check the channel ID, then restart the bot.")
         except discord.Forbidden:
@@ -70,7 +91,22 @@ class ChestBot(discord.Client):
         if counted:
             log.info("Caught up on %d missed message(s)", counted)
 
+    async def _post_reports(self) -> None:
+        """Every few seconds, post the group reports whose waiting time is up."""
+        while True:
+            await asyncio.sleep(5)
+            for report in self.reports.pop_due(time.monotonic()):
+                try:
+                    channel = await self.fetch_channel(self.match_channel_id)
+                    await channel.send(format_report(report, discord.utils.escape_markdown))
+                except discord.HTTPException as error:
+                    log.warning("Couldn't post the group report: %s", error.__class__.__name__)
+                    self.on_status("problem", "The bot can't post in the match reports channel. Check its permissions.")
+
     async def on_message(self, message: discord.Message):
+        if self.match_channel_id and message.channel.id == self.match_channel_id:
+            collect_match(self.reports, message, time.monotonic())
+            return
         if message.channel.id != self.channel_id:
             return
         ingest(self.store, message)
@@ -119,9 +155,12 @@ def register_commands(tree: app_commands.CommandTree, store: Store) -> None:
 class BotRunner:
     """Runs the bot on its own thread so the app window stays responsive."""
 
-    def __init__(self, token: str, channel_id: int, db_path: Path, on_status):
+    def __init__(
+        self, token: str, channel_id: int, db_path: Path, on_status, match_channel_id: int | None = None
+    ):
         self.token = token
         self.channel_id = channel_id
+        self.match_channel_id = match_channel_id
         self.db_path = db_path
         self.on_status = on_status
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -141,7 +180,7 @@ class BotRunner:
         store = Store(self.db_path)  # SQLite connections stay on the thread that made them
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.client = ChestBot(store, self.channel_id, self.on_status)
+        self.client = ChestBot(store, self.channel_id, self.on_status, self.match_channel_id)
         status, message = "stopped", "Bot is off."
         try:
             self.loop.run_until_complete(self.client.start(self.token))

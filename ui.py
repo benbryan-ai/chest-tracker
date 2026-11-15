@@ -29,12 +29,12 @@ from fortnite_stats import FortniteStatsError, fetch_stats
 from gamepad import is_pad_name, pad_label, shared_gamepad
 from matches import MatchLog
 from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
-from protocol import MAX_NAME_LENGTH, name_problem
+from protocol import MAX_NAME_LENGTH, name_problem, normalize_party, party_problem, is_webhook_url
 from recap import RecapDetector
 from settings import Settings, Stats
 from store import Store
 from watcher import (
-    VK_F8, VK_F9, VK_F10, KeyEdge, Sender, WatchEngine, capture_focused_screen, check_webhook, fortnite_focused,
+    VK_F8, VK_F9, VK_F10, KeyEdge, MatchPoster, Sender, WatchEngine, capture_focused_screen, check_webhook, fortnite_focused,
     foreground_window_bounds, interact_check, selection_too_big, key_code
 )
 from widgets import (
@@ -754,6 +754,36 @@ class SetupPage(QWidget):
         self.webhook_step.content.addWidget(self.webhook_status)
         self.webhook_result.connect(self._show_webhook_result)
 
+        self.webhook_step.content.addWidget(label("Match reports (optional)", "small"))
+        self.webhook_step.content.addWidget(label(
+            "Posts one line per finished match, for example \"14 chests this match\", to a second "
+            "webhook. Point it at a different channel than the one above if you like.",
+            "muted", wrap=True,
+        ))
+        self.match_webhook = QLineEdit(settings["match_webhook_url"])
+        self.match_webhook.setPlaceholderText("https://discord.com/api/webhooks/... (match reports channel)")
+        self.match_webhook.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
+        self.match_webhook.editingFinished.connect(self._save_match_webhook)
+        self.webhook_step.content.addWidget(self.match_webhook)
+        self.match_post = QCheckBox("Post each match to Discord")
+        self.match_post.setToolTip("Turn this off to keep your matches to yourself.")
+        self.match_post.setChecked(bool(settings["match_post"]))
+        self.match_post.toggled.connect(self._save_match_post)
+        self.webhook_step.content.addWidget(self.match_post)
+        self.webhook_step.content.addWidget(label(
+            "Playing with friends? Everyone enters the same party code (3 to 12 letters or numbers) "
+            "and the bot posts one group game report. Leave it empty if you play solo.",
+            "muted", wrap=True,
+        ))
+        self.party = QLineEdit(settings["party_code"])
+        self.party.setPlaceholderText("Party code, for example SQUAD42")
+        self.party.setMaxLength(24)
+        self.party.editingFinished.connect(self._save_party)
+        self.webhook_step.content.addWidget(self.party)
+        self.match_status = label("", "small", wrap=True)
+        self.match_status.hide()
+        self.webhook_step.content.addWidget(self.match_status)
+
         self.key_step = Step(3, "Interact key")
         self.key_step.content.addWidget(label(
             "Click the button, then press the key or scroll the wheel the way you open chests in Fortnite.",
@@ -1090,6 +1120,34 @@ class SetupPage(QWidget):
             self.window_.settings.set(match_threshold=value)
             self.window_.restart_engine()
 
+    def _show_match_problem(self, text: str | None) -> None:
+        self.match_status.setText(f'<span style="color:{EMBER}">{text}</span>' if text else "")
+        self.match_status.setVisible(bool(text))
+
+    def _save_match_webhook(self) -> None:
+        url = self.match_webhook.text().strip()
+        if url and not is_webhook_url(url):
+            self._show_match_problem("That doesn't look like a Discord webhook URL.")
+            return
+        self._show_match_problem(None)
+        if url != self.window_.settings["match_webhook_url"]:
+            self.window_.settings.set(match_webhook_url=url)
+            self.window_.apply_identity()
+
+    def _save_match_post(self, on: bool) -> None:
+        self.window_.settings.set(match_post=on)
+
+    def _save_party(self) -> None:
+        text = self.party.text()
+        problem = party_problem(text)
+        self._show_match_problem(problem)
+        if problem:
+            return
+        code = normalize_party(text)
+        self.party.setText(code)
+        if code != self.window_.settings["party_code"]:
+            self.window_.settings.set(party_code=code)
+
     def _test_webhook(self) -> None:
         url = self.webhook.text().strip()
         self.test.setEnabled(False)
@@ -1362,6 +1420,16 @@ class GroupPage(QWidget):
         self.channel.setPlaceholderText("Right-click the channel in Discord, then Copy Channel ID")
         self.channel.editingFinished.connect(self._save)
         section.addWidget(self.channel)
+        section.addWidget(label("Match reports channel ID (optional)", "small"))
+        self.match_channel = QLineEdit(settings["match_channel_id"])
+        self.match_channel.setPlaceholderText("The channel your match reports webhook posts to")
+        self.match_channel.editingFinished.connect(self._save)
+        section.addWidget(self.match_channel)
+        section.addWidget(label(
+            "With this set, the bot posts a group game report in that channel when teammates using the "
+            "same party code finish a match. It waits 3 minutes for the rest of the team.",
+            "muted", wrap=True,
+        ))
         self.auto = QCheckBox("Start the bot when the app opens")
         self.auto.setChecked(settings["run_bot"])
         self.auto.toggled.connect(lambda on: settings.set(run_bot=on))
@@ -1390,7 +1458,10 @@ class GroupPage(QWidget):
         self.disclosure.setText(("Hide" if visible else "Show") + " bot connection")
 
     def _save(self) -> None:
-        self.window_.settings.set(bot_token=self.token.text().strip(), channel_id=self.channel.text().strip())
+        self.window_.settings.set(
+            bot_token=self.token.text().strip(), channel_id=self.channel.text().strip(),
+            match_channel_id=self.match_channel.text().strip(),
+        )
 
     def show_leaderboard(self, rows: list[tuple[str, int]], total: int) -> None:
         while self.board.count():
@@ -1510,6 +1581,13 @@ class MainWindow(QMainWindow):
             folder / "pending.json", self.delivery.emit,
         )
         threading.Thread(target=self.sender.run_forever, daemon=True).start()
+        self.poster = MatchPoster(
+            self.settings["match_webhook_url"], self.settings["player_name"],
+            folder / "pending_matches.json", self.delivery.emit,
+        )
+        threading.Thread(target=self.poster.run_forever, daemon=True).start()
+        if self.poster.queue:
+            self.poster.wake.set()
         if self.sender.pending:
             self.sender.wake.set()
 
@@ -1564,6 +1642,10 @@ class MainWindow(QMainWindow):
                 self.tracker.log("This match had no chests, so nothing was saved", ASH)
             return
         log.info("Match finished (%s): %d chests", how, record["chests"])
+        if self.settings["match_post"] and self.settings["match_webhook_url"] and self.settings["player_name"]:
+            code = self.settings["party_code"]
+            # A hand-edited code the bot couldn't read would turn the post into a plain line.
+            self.poster.add(record["chests"], "" if party_problem(code) else normalize_party(code))
         word = "chest" if record["chests"] == 1 else "chests"
         self.tracker.log(f"Match finished: {record['chests']} {word}", GOLD)
 
@@ -1664,6 +1746,9 @@ class MainWindow(QMainWindow):
         self.sender.url = self.settings["webhook_url"]
         self.sender.player = self.settings["player_name"]
         self.sender.wake.set()
+        self.poster.url = self.settings["match_webhook_url"]
+        self.poster.player = self.settings["player_name"]
+        self.poster.wake.set()
         self.restart_engine()
 
     def _update_notice(self) -> None:
@@ -1835,6 +1920,7 @@ class MainWindow(QMainWindow):
         self.bot = BotRunner(
             self.settings["bot_token"], int(self.settings["channel_id"]),
             self.folder / "chests.db", self.bot_status.emit,
+            int(self.settings["match_channel_id"]) if self.settings["match_channel_id"].isdigit() else None,
         )
         self.group.toggle.setText("Stop bot")
         self.bot.start()
@@ -1903,5 +1989,5 @@ class MainWindow(QMainWindow):
             self.bot.stop()
         self.tray.hide()
         deadline = time.monotonic() + 2
-        while self.sender.pending and time.monotonic() < deadline:
+        while (self.sender.pending or self.poster.queue) and time.monotonic() < deadline:
             time.sleep(0.1)
