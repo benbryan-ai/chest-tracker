@@ -18,3 +18,7 @@ __pycache__/
 
 # Launch material, not part of the app
 promo/
+
+# Scanner build output
+scanner/**/bin/
+scanner/**/obj/

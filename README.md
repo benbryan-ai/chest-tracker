@@ -226,6 +226,10 @@ To publish a release:
 The **Release** workflow checks the tag matches `version.py` and that the notes section exists, runs the tests, builds `Chest-Tracker.exe` and attaches it to a GitHub release, which is what the download link and the in-app updater serve.
 | `fortnite_stats.py` | The optional Fortnite-API player-stats lookup |
 
+## Replay scanner (test build)
+
+The `scanner/` folder holds `chest-scan`, an experimental replay counter. See `scanner/README.md`.
+
 ## License
 
 [MIT](LICENSE)
