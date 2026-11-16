@@ -487,3 +487,188 @@ def test_export_writes_the_history(window, monkeypatch, tmp_path):
     monkeypatch.setattr(ui.QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
     window.export_match_history()
     assert target.read_text(encoding="utf-8-sig").splitlines()[1].endswith(",1")
+
+
+def share_matches(window, party=""):
+    window.settings.set(
+        match_webhook_url="https://discord.com/api/webhooks/2/y", player_name="Sam", party_code=party
+    )
+
+
+def test_a_finished_match_is_queued_for_the_match_webhook(window):
+    share_to_discord(window)
+    share_matches(window, "SQD")
+    window.sender.wake.clear()
+    window.record_chest(1, "detected")
+    window.record_chest(1, "detected")
+    window.poster.wake.clear()
+    window.finish_match("key")
+    assert window.poster.queue == [{"chests": 2, "party": "SQD"}]
+    assert window.sender.pending == 2  # the normal chest count is separate and unchanged
+
+
+def test_solo_players_can_turn_match_posts_off(window):
+    share_matches(window)
+    window.setup.match_post.setChecked(False)
+    assert window.settings["match_post"] is False
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    assert window.poster.queue == []
+    assert window.matches.history[-1]["chests"] == 1  # still kept on this PC
+
+
+def test_no_match_post_without_a_link_or_a_name_or_chests(window):
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    window.settings.set(match_webhook_url="https://discord.com/api/webhooks/2/y")
+    window.record_chest(1, "detected")
+    window.finish_match("key")  # still no player name
+    share_matches(window)
+    window.finish_match("key")  # nothing counted this match
+    assert window.poster.queue == []
+
+
+def test_party_code_is_cleaned_saved_and_checked(window):
+    page = window.setup
+    page.party.setText(" sq 42 ")
+    page._save_party()
+    assert window.settings["party_code"] == "SQ42" and page.party.text() == "SQ42"
+    page.party.setText("no way!")
+    page._save_party()
+    assert window.settings["party_code"] == "SQ42"
+    assert not page.match_status.isHidden()
+    page.party.setText("")
+    page._save_party()
+    assert window.settings["party_code"] == ""
+
+
+def test_match_webhook_must_be_a_discord_link(window):
+    page = window.setup
+    page.match_webhook.setText("https://example.com/hook")
+    page._save_match_webhook()
+    assert window.settings["match_webhook_url"] == "" and not page.match_status.isHidden()
+    page.match_webhook.setText("https://discord.com/api/webhooks/2/y")
+    page._save_match_webhook()
+    assert window.settings["match_webhook_url"].endswith("/2/y") and window.poster.url.endswith("/2/y")
+
+
+def test_the_match_channel_id_is_saved_with_the_bot_settings(window):
+    window.group.match_channel.setText(" 12345 ")
+    window.group._save()
+    assert window.settings["match_channel_id"] == "12345"
+
+
+def test_an_unusable_party_code_in_the_settings_file_is_not_posted(window):
+    share_matches(window, "x!")
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    assert window.poster.queue == [{"chests": 1, "party": ""}]
+
+
+# --- updates ---
+
+import updater as updater_module
+
+
+def a_release(version="9.9.9"):
+    return updater_module.Release(f"v{version}", "Fixes things.", "https://github.com/x/y/releases/download/v/z.exe",
+                                  10, "ab" * 32, "https://github.com/x/y/releases/tag/v")
+
+
+def newer(window, manual=False):
+    window._on_update_checked(updater_module.CheckResult("newer", a_release()), manual)
+
+
+def test_a_newer_version_shows_the_banner_and_setup_status(window):
+    window.settings.set(update_mode="notify")
+    newer(window)
+    assert not window.banner.isHidden() and "9.9.9" in window.banner_text.text()
+    assert "9.9.9" in window.setup.update_status.text()
+
+
+def test_up_to_date_is_only_announced_when_asked_for(window):
+    window._on_update_checked(updater_module.CheckResult("current"), False)
+    assert window.setup.update_status.text() == "" and window.banner.isHidden()
+    window._on_update_checked(updater_module.CheckResult("current"), True)
+    assert "up to date" in window.setup.update_status.text()
+
+
+def test_a_failed_check_is_quiet_unless_asked_for(window):
+    result = updater_module.CheckResult("error", message="Couldn't reach GitHub.")
+    window._on_update_checked(result, False)
+    assert window.setup.update_status.text() == ""
+    window._on_update_checked(result, True)
+    assert "Couldn't reach GitHub" in window.setup.update_status.text()
+    assert window.setup.update_check.isEnabled()
+
+
+def test_the_update_mode_is_saved_and_off_stops_the_timer(window):
+    window.setup.update_mode.setCurrentIndex(window.setup.update_mode.findData("off"))
+    assert window.settings["update_mode"] == "off" and not window.update_timer.isActive()
+    window.setup.update_mode.setCurrentIndex(window.setup.update_mode.findData("auto"))
+    assert window.settings["update_mode"] == "auto" and window.update_timer.isActive()
+
+
+def test_the_default_is_to_tell_the_person_not_to_install(window):
+    assert window.settings["update_mode"] == "notify"
+    window.found_update = a_release()
+    window._try_auto_install()
+    assert not window.installing
+
+
+def test_auto_install_waits_for_a_quiet_moment(window, monkeypatch):
+    window.settings.set(update_mode="auto")
+    window.found_update = a_release()
+    started = []
+    monkeypatch.setattr(updater_module, "running_exe", lambda: Path("C:/x/Chest-Tracker.exe"))
+    monkeypatch.setattr(window, "install_update", lambda: started.append(1))
+    monkeypatch.setattr(ui, "fortnite_focused", lambda: True)
+    window._try_auto_install()
+    assert started == []  # Fortnite is in front
+    monkeypatch.setattr(ui, "fortnite_focused", lambda: False)
+    window.record_chest(1, "detected")
+    window._try_auto_install()
+    assert started == []  # a match with chests is open
+    window.finish_match("key")
+    window._try_auto_install()
+    assert started == [1]
+
+
+def test_install_from_source_opens_the_release_page_instead(window, monkeypatch):
+    opened = []
+    monkeypatch.setattr(ui.QDesktopServices, "openUrl", lambda url: opened.append(url.toString()))
+    window.found_update = a_release()
+    window.install_update()
+    assert opened == ["https://github.com/x/y/releases/tag/v"] and not window.installing
+
+
+def test_a_failed_download_shows_the_problem_and_allows_trying_again(window):
+    window.found_update = a_release()
+    window.installing = True
+    window._on_update_failed("The download was interrupted. Try again.")
+    assert not window.installing and window.banner_install.isEnabled()
+    assert window.banner_install.text() == "Try again"
+    assert "interrupted" in window.banner_text.text()
+
+
+def test_a_finished_download_is_installed_and_the_app_restarts(window, monkeypatch, tmp_path):
+    exe = tmp_path / "Chest-Tracker.exe"
+    exe.write_bytes(b"old")
+    new = tmp_path / "Chest-Tracker.exe.new"
+    new.write_bytes(b"new")
+    calls = []
+    monkeypatch.setattr(updater_module, "running_exe", lambda: exe)
+    monkeypatch.setattr(updater_module, "relaunch", lambda path: calls.append(("relaunch", path)))
+    monkeypatch.setattr(window, "quit_app", lambda: calls.append(("quit", None)))
+    window._on_update_ready(a_release(), new)
+    assert exe.read_bytes() == b"new" and [c[0] for c in calls] == ["relaunch", "quit"]
+
+
+def test_a_swap_that_fails_keeps_the_app_running(window, monkeypatch, tmp_path):
+    exe = tmp_path / "Chest-Tracker.exe"
+    exe.write_bytes(b"old")
+    monkeypatch.setattr(updater_module, "running_exe", lambda: exe)
+    monkeypatch.setattr(window, "quit_app", lambda: pytest.fail("must not quit"))
+    window.found_update = a_release()
+    window._on_update_ready(a_release(), tmp_path / "missing.new")
+    assert exe.read_bytes() == b"old" and window.banner_install.text() == "Try again"

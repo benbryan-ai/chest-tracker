@@ -61,3 +61,52 @@ def test_a_failing_player_is_reported_not_raised():
         raise RuntimeError("no device")
 
     assert Chime(player=broken).play(0.5) is False
+
+
+def test_the_windows_player_never_makes_the_caller_wait(monkeypatch):
+    import threading
+    import time
+
+    started, release = threading.Event(), threading.Event()
+
+    def slow_play(data):
+        started.set()
+        release.wait(2)
+
+    monkeypatch.setattr(chime, "_play_blocking", slow_play)
+    before = time.monotonic()
+    chime._windows_player(b"sound")
+    assert time.monotonic() - before < 0.5  # the sound is still "playing" and we already moved on
+    assert started.wait(1)
+    release.set()
+
+
+def test_the_blocking_call_is_made_from_memory_without_the_background_flag(monkeypatch):
+    import sys
+    import types
+
+    calls = []
+    fake = types.SimpleNamespace(
+        SND_MEMORY=4, SND_ASYNC=1, SND_NODEFAULT=2,
+        PlaySound=lambda data, flags: calls.append((data, flags)),
+    )
+    monkeypatch.setitem(sys.modules, "winsound", fake)
+    chime._play_blocking(b"abc")
+    assert calls == [(b"abc", 4 | 2)]
+    assert not calls[0][1] & fake.SND_ASYNC  # Windows refuses memory + background together
+
+
+def test_a_sound_problem_is_logged_once_and_never_raised(monkeypatch, caplog):
+    import sys
+    import types
+
+    def broken(data, flags):
+        raise RuntimeError("no device")
+
+    monkeypatch.setitem(sys.modules, "winsound", types.SimpleNamespace(
+        SND_MEMORY=4, SND_ASYNC=1, SND_NODEFAULT=2, PlaySound=broken))
+    monkeypatch.setattr(chime, "_warned", False)
+    with caplog.at_level("WARNING", logger="chest-tracker"):
+        chime._play_blocking(b"x")
+        chime._play_blocking(b"x")
+    assert len([r for r in caplog.records if "chime" in r.getMessage()]) == 1

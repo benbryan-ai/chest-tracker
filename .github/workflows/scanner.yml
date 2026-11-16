@@ -1,0 +1,33 @@
+name: Scanner pre-release
+
+# Tags like scanner-v0.1.0 build chest-scan.exe and publish it as a pre-release.
+# This does not touch the app's own v* release workflow.
+on:
+  push:
+    tags: ["scanner-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish
+        shell: pwsh
+        run: dotnet publish scanner/src/chest-scan/chest-scan.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o out
+      - name: Smoke test
+        shell: pwsh
+        run: ./out/chest-scan.exe --json $env:RUNNER_TEMP
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" out/chest-scan.exe --prerelease \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Test build of the replay scanner. Run it on your .replay files; see scanner/README.md."

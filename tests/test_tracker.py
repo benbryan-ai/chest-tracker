@@ -1131,3 +1131,177 @@ def test_the_new_match_key_is_heard_only_in_fortnite(monkeypatch):
     engine.stop()
     engine.join(2)
     assert heard
+
+
+# --- match posts, party codes and the group report ---
+
+from bot import collect_match
+from protocol import format_match, normalize_party, parse_match, party_problem
+from reports import GroupReports, format_report
+from watcher import MatchPoster
+
+
+def test_match_posts_round_trip_and_are_not_chest_posts():
+    assert parse_match(format_match(14)) == (14, "")
+    assert parse_match(format_match(1, "squad42")) == (1, "SQUAD42")
+    assert format_match(1) == "\U0001F3AE 1 chest this match"
+    assert parse_delta(format_match(14)) is None and parse_match(format_delta(2)) is None
+    assert parse_match("\U0001F3AE 14 chests this match · party x") is None
+    assert parse_match("hello") is None
+
+
+def test_party_codes_are_cleaned_and_checked():
+    assert normalize_party(" sq uad 42 ") == "SQUAD42"
+    assert party_problem("") is None and party_problem("SQUAD42") is None
+    for bad in ("ab", "THIS-IS-BAD", "WAYTOOLONGPARTYCODE", "emoji\U0001F600"):
+        assert party_problem(bad)
+
+
+def test_the_report_waits_three_minutes_then_ranks_the_team():
+    reports = GroupReports()
+    reports.add("SQ", "Sam", 14, now=0)
+    reports.add("SQ", "Alex", 9, now=40)
+    reports.add("SQ", "Jo", 14, now=100)
+    assert reports.pop_due(179) == []
+    [report] = reports.pop_due(180)
+    assert [p for p in report.players] == [("Jo", 14), ("Sam", 14), ("Alex", 9)]
+    assert report.total == 37
+    text = format_report(report)
+    assert "party `SQ`" in text and "Team total: 37 chests" in text and text.count("\U0001F3C6") == 2
+    assert reports.pop_due(1000) == []  # each game is reported once
+
+
+def test_a_full_squad_is_reported_straight_away():
+    reports = GroupReports()
+    for i, name in enumerate("ABCD"):
+        reports.add("SQ", name, i + 1, now=i)
+    assert len(reports.pop_due(4)) == 1
+
+
+def test_one_player_alone_gets_no_group_report():
+    reports = GroupReports()
+    reports.add("SQ", "Sam", 5, now=0)
+    assert reports.pop_due(500) == []
+    assert reports.games == {}
+
+
+def test_a_repeat_from_one_player_replaces_the_first_and_parties_stay_apart():
+    reports = GroupReports()
+    reports.add("A", "Sam", 5, now=0)
+    reports.add("A", "sam", 7, now=1)
+    reports.add("A", "Alex", 2, now=2)
+    reports.add("B", "Jo", 3, now=3)
+    [report] = reports.pop_due(200)
+    assert report.party == "A" and report.players == [("sam", 7), ("Alex", 2)]
+
+
+def test_the_next_game_after_a_report_starts_fresh():
+    reports = GroupReports()
+    reports.add("A", "Sam", 5, now=0)
+    reports.add("A", "Alex", 5, now=1)
+    reports.pop_due(200)
+    reports.add("A", "Sam", 8, now=300)
+    reports.add("A", "Alex", 1, now=301)
+    [report] = reports.pop_due(500)
+    assert report.total == 9
+
+
+def test_player_names_cannot_break_the_report_formatting():
+    reports = GroupReports()
+    reports.add("A", "**bold**", 5, now=0)
+    reports.add("A", "Alex", 2, now=1)
+    [report] = reports.pop_due(200)
+    assert "\\*\\*bold\\*\\*" in format_report(report, lambda t: t.replace("*", "\\*"))
+
+
+def test_the_bot_only_collects_party_posts_from_webhooks():
+    reports = GroupReports()
+    assert collect_match(reports, message(1, "Sam", format_match(5, "SQD")), 0)
+    assert not collect_match(reports, message(2, "Alex", format_match(5)), 0)  # solo
+    assert not collect_match(reports, message(3, "Jo", format_match(5, "SQD"), webhook_id=None), 0)
+    assert not collect_match(reports, message(4, "Jo", format_delta(2)), 0)
+    assert list(reports.games["SQD"].counts) == ["sam"]
+
+
+def test_match_poster_sends_a_line_per_match_and_clears_the_queue(fake_discord, tmp_path):
+    fake_discord.replies = [(200, {}), (200, {})]
+    poster = MatchPoster(f"http://127.0.0.1:{fake_discord.server_port}", "Sam", tmp_path / "q.json")
+    poster.add(14, "SQ")
+    poster.add(3)
+    assert poster.send_once() == 1.0
+    assert poster.send_once() == 0.0
+    assert [b["content"] for b in fake_discord.bodies] == [format_match(14, "SQ"), format_match(3)]
+    assert fake_discord.bodies[0]["username"] == "Sam"
+    assert fake_discord.bodies[0]["allowed_mentions"] == {"parse": []}
+    assert poster.queue == []
+
+
+def test_match_poster_keeps_matches_through_errors_and_restarts(fake_discord, tmp_path):
+    path = tmp_path / "q.json"
+    fake_discord.replies = [(429, {"retry_after": 2}), (404, {})]
+    poster = MatchPoster(f"http://127.0.0.1:{fake_discord.server_port}", "Sam", path)
+    poster.add(5, "SQ")
+    assert poster.send_once() == pytest.approx(2.1)
+    assert poster.send_once() == 60
+    assert MatchPoster("http://127.0.0.1:9", "Sam", path).queue == [{"chests": 5, "party": "SQ"}]
+
+
+def test_match_poster_waits_without_a_name_or_link_and_survives_a_bad_file(tmp_path):
+    poster = MatchPoster("", "", tmp_path / "q.json")
+    poster.add(2)
+    assert poster.send_once() == 15.0 and len(poster.queue) == 1
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"queue": [{"chests": "x"}, 5, {"chests": 3}]}')
+    assert MatchPoster("", "", bad).queue == [{"chests": 3, "party": ""}]
+
+
+def test_match_poster_queue_is_capped(tmp_path):
+    poster = MatchPoster("", "", tmp_path / "q.json")
+    for i in range(80):
+        poster.add(i + 1)
+    assert len(poster.queue) == MatchPoster.MAX_QUEUE and poster.queue[-1]["chests"] == 80
+
+
+def test_the_bot_posts_the_group_report_in_the_match_channel(store, monkeypatch):
+    import asyncio
+
+    import bot as bot_module
+
+    sent = []
+
+    class Channel:
+        async def send(self, text):
+            sent.append(text)
+
+    async def run():
+        client = bot_module.ChestBot(store, 1, lambda *a: None, match_channel_id=2)
+
+        async def fetch(channel_id):
+            assert channel_id == 2
+            return Channel()
+
+        async def no_wait(seconds):
+            if sent:
+                raise asyncio.CancelledError
+
+        client.fetch_channel = fetch
+        monkeypatch.setattr(bot_module.asyncio, "sleep", no_wait)
+        client.reports = GroupReports(wait=0)
+        client.reports.add("SQD", "Sam", 5, now=0)
+        client.reports.add("SQD", "Alex", 3, now=0)
+        monkeypatch.setattr(bot_module.time, "monotonic", lambda: 10.0)
+        try:
+            await client._post_reports()
+        except asyncio.CancelledError:
+            pass
+        await client.close()
+
+    asyncio.run(run())
+    assert len(sent) == 1 and "Team total: 8 chests" in sent[0]
+
+
+def test_one_channel_for_both_jobs_never_hijacks_chest_posts(store):
+    import bot as bot_module
+
+    client = bot_module.ChestBot(store, 7, lambda *a: None, match_channel_id=7)
+    assert client.match_channel_id is None
