@@ -3,6 +3,6 @@
 Bump VERSION for each release. The release workflow refuses to build a tag that doesn't match it.
 """
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 REPO = "benjamin-bryant/chest-tracker"
 ASSET_NAME = "Chest-Tracker.exe"

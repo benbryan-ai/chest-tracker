@@ -20,6 +20,7 @@ DEFAULTS = {
     "pause_key": "F9",
     "match_key": "F8",
     "overlay_show_match": True,
+    "overlay_show_last": True,
     "chime_enabled": False,
     "chime_volume": 0.6,
     "overlay_scale": 1.0,
@@ -132,6 +133,13 @@ class Stats:
         self.total = max(0, self.total + amount)
         self.today = max(0, self.today + amount)
         self.session = max(0, self.session + amount)
+        self.save()
+        return self.total - before
+
+    def adjust_total(self, amount: int) -> int:
+        """Change only the lifetime total (typed totals, imports). Returns how much it really changed."""
+        before = self.total
+        self.total = max(0, self.total + amount)
         self.save()
         return self.total - before
 

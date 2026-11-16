@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+import importer
 import replays
 import ui
 from datetime import datetime
@@ -351,7 +352,7 @@ def test_a_broken_sound_system_does_not_stop_counting(window):
 def test_overlay_size_and_opacity_apply_and_are_saved(window):
     window.set_overlay_scale(1.5)
     window.set_overlay_opacity(0.6)
-    assert window.overlay.width() == round(220 * 1.5) and window.overlay.height() == round(76 * 1.5)
+    assert window.overlay.width() == round(220 * 1.5) and window.overlay.height() == round(96 * 1.5)
     assert window.overlay.opacity == 0.6
     assert window.settings["overlay_scale"] == 1.5
     assert window.settings["overlay_opacity"] == 0.6
@@ -729,3 +730,77 @@ def test_replay_counting_can_be_turned_off(window, monkeypatch, tmp_path):
     window.poster.queue.clear()
     window.finish_match("key")
     assert window.poster.queue == [{"chests": 1, "party": "SQD"}]
+
+
+# --- editable total, session, last match, import ---
+
+def test_setting_the_total_keeps_today_and_can_be_undone(window):
+    window.record_chest(1, "detected")
+    window.record_chest(1, "detected")
+    assert window.set_total(50) == 48
+    assert window.stats.total == 50
+    assert window.stats.today == 2 and window.stats.session == 2  # only the lifetime total moved
+    entry = window.adjustments.entries[-1]
+    assert entry["chests"] == 48
+    window.undo_adjustment(entry["id"])
+    assert window.stats.total == 2
+    assert window.adjustments.entries == []
+
+
+def test_setting_the_same_total_records_nothing(window):
+    assert window.set_total(window.stats.total) == 0
+    assert window.adjustments.entries == []
+
+
+def test_a_typed_total_is_not_sent_to_discord(window):
+    share_to_discord(window)
+    window.sender.wake.clear()
+    window.set_total(500)
+    assert window.sender.pending == 0
+
+
+def test_the_total_dialog_changes_the_total(window):
+    dialog = ui.TotalDialog(window)
+    dialog.total_edit.setText("1,234")
+    dialog.apply_total()
+    assert window.stats.total == 1234
+    dialog.total_edit.setText("abc")
+    dialog.apply_total()
+    assert window.stats.total == 1234
+    dialog.history.setCurrentRow(0)
+    dialog.undo_selected()
+    assert window.stats.total == 0
+
+
+def test_an_import_adds_the_total_and_matches_and_undoes_cleanly(window):
+    offer = importer.ImportOffer("ChestCounter", "Sam", 60, [
+        {"start": "2026-11-01T20:00:00", "end": "2026-11-01T20:20:00", "chests": 20, "opened": 18, "broken": 2},
+        {"start": "2026-11-01T21:00:00", "end": "2026-11-01T21:20:00", "chests": 25, "opened": 25, "broken": 0},
+    ], 15)
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    assert window.apply_import(offer) == 2
+    assert window.stats.total == 61 and window.stats.today == 1
+    assert [m["chests"] for m in window.matches.history][-1] == 1  # the live match stays last
+    assert window.matches.last_chests() == 1
+    dialog = ui.TotalDialog(window)
+    dialog.offers = [offer]
+    assert window.adjustments.has_import(offer.note)
+    window.undo_adjustment(window.adjustments.entries[-1]["id"])
+    assert window.stats.total == 1 and len(window.matches.history) == 1
+
+
+def test_session_and_last_match_show_on_the_overlay_and_page(window):
+    window.record_chest(1, "detected")
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    assert window.matches.session_matches == 1
+    assert window.overlay.last_match == 2 and window.overlay.session == 2 and window.overlay.session_matches == 1
+    assert "Last match: 2" in window.tracker.last_match.text()
+    assert "1 match finished" in window.tracker.session_matches.text()
+
+
+def test_the_extra_overlay_row_can_be_hidden(window):
+    window.set_overlay_last(False)
+    assert window.overlay.height() == 76
+    assert window.settings["overlay_show_last"] is False

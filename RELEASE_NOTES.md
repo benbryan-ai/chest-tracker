@@ -3,6 +3,12 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.3.0
+
+- **Edit your total.** The tracker page has an **Edit total...** button. Type what your total should be; the difference is saved in a list of changes, and any change can be undone. Today's and this session's counts aren't affected, and typed changes aren't sent to Discord.
+- **Import from ChestCounter or chest-tracker.** If either is installed, the same window offers to bring in its total and its match history (so averages and best match include them). Imports follow the other app's own counting rules, so the number matches what it shows, and an import can be undone as one step.
+- **Session and last match.** The tracker page shows how many matches you've finished this session and your last match's count. The overlay has a new bottom row with the last match and this session (turn it off in Setup under the overlay options).
+
 ## v1.2.0
 
 - **Exact counts from Fortnite's replay.** After each match the app reads Fortnite's replay file and uses its chest count, which also includes chests you broke instead of opened. The screen count is used if the replay can't be read, or if you turn this off in Setup ("Replay counting").

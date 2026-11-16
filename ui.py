@@ -31,8 +31,10 @@ from matches import MatchLog
 from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
 from protocol import MAX_NAME_LENGTH, name_problem, normalize_party, party_problem, is_webhook_url
 from recap import RecapDetector
+import importer
 import replays
 import updater
+from adjustments import Adjustments
 from version import VERSION
 from settings import Settings, Stats
 from store import Store
@@ -379,6 +381,108 @@ class SelectionView(QWidget):
         self.update()
 
 
+class TotalDialog(QDialog):
+    """Change the lifetime total by hand, undo earlier changes, or bring numbers in from another tracker."""
+
+    def __init__(self, window: "MainWindow"):
+        super().__init__(window)
+        self.window_ = window
+        self.setWindowTitle("Your total")
+        self.setMinimumSize(520, 520)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 20)
+        outer.setSpacing(10)
+        outer.addWidget(label("Chests in total", "heading"))
+        self.current = label("", "muted")
+        outer.addWidget(self.current)
+        outer.addWidget(label(
+            "Type what your total should be. The difference is kept in the list below, so you can undo it. "
+            "Today's and this session's counts don't change.", "muted", wrap=True,
+        ))
+        row = QHBoxLayout()
+        self.total_edit = QLineEdit()
+        self.total_edit.setPlaceholderText("New total")
+        self.total_edit.returnPressed.connect(self.apply_total)
+        row.addWidget(self.total_edit, 1)
+        self.apply_button = QPushButton("Set total")
+        self.apply_button.setObjectName("primary")
+        self.apply_button.clicked.connect(self.apply_total)
+        row.addWidget(self.apply_button)
+        outer.addLayout(row)
+        self.status = label("", "small", wrap=True)
+        outer.addWidget(self.status)
+        outer.addWidget(label("Changes you made", "subheading"))
+        self.history = QListWidget()
+        self.history.setObjectName("activityList")
+        outer.addWidget(self.history, 1)
+        self.undo = QPushButton("Undo selected change")
+        self.undo.clicked.connect(self.undo_selected)
+        outer.addWidget(self.undo)
+        outer.addWidget(label("Bring in numbers from another tracker", "subheading"))
+        self.offers = importer.find_offers()
+        self.offer_box = QComboBox()
+        for offer in self.offers:
+            self.offer_box.addItem(
+                f"{offer.source} ({offer.label}): {offer.chests:,} chests, {len(offer.matches):,} matches", offer
+            )
+        outer.addWidget(self.offer_box)
+        self.import_button = QPushButton("Import")
+        self.import_button.clicked.connect(self.import_selected)
+        outer.addWidget(self.import_button)
+        self.import_note = label(
+            "" if self.offers else
+            "No ChestCounter or chest-tracker data was found on this PC (looked in your AppData folder).",
+            "muted", wrap=True,
+        )
+        outer.addWidget(self.import_note)
+        self.import_button.setEnabled(bool(self.offers))
+        self.offer_box.setVisible(bool(self.offers))
+        self.refresh()
+
+    def refresh(self) -> None:
+        total = self.window_.stats.total
+        self.current.setText(f"Your total is {total:,}.")
+        self.total_edit.setText(str(total))
+        self.history.clear()
+        for entry in reversed(self.window_.adjustments.entries):
+            item = QListWidgetItem(f"{entry['chests']:+,}   {entry['note']}   ({entry['when'].replace('T', ' ')})")
+            item.setData(Qt.ItemDataRole.UserRole, entry["id"])
+            self.history.addItem(item)
+        if not self.window_.adjustments.entries:
+            self.history.addItem("Nothing changed by hand yet.")
+        self.undo.setEnabled(bool(self.window_.adjustments.entries))
+
+    def apply_total(self) -> None:
+        text = self.total_edit.text().strip().replace(",", "")
+        if not text.isdigit() or len(text) > 9:
+            self.status.setText("Type a whole number, 0 or more.")
+            return
+        change = self.window_.set_total(int(text))
+        self.status.setText("That's already your total." if change == 0 else f"Changed by {change:+,}.")
+        self.refresh()
+
+    def undo_selected(self) -> None:
+        item = self.history.currentItem()
+        entry_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not entry_id:
+            self.status.setText("Pick a change in the list first.")
+            return
+        self.window_.undo_adjustment(entry_id)
+        self.status.setText("Undone.")
+        self.refresh()
+
+    def import_selected(self) -> None:
+        offer = self.offer_box.currentData()
+        if offer is None:
+            return
+        if self.window_.adjustments.has_import(offer.note):
+            self.status.setText("That is already imported. Undo it in the list first to import again.")
+            return
+        added = self.window_.apply_import(offer)
+        self.status.setText(f"Added {offer.chests:,} chests and {added:,} matches from {offer.source}.")
+        self.refresh()
+
+
 class PromptDialog(QDialog):
     """Guides the player through saving a picture of the SEARCH prompt."""
 
@@ -518,7 +622,13 @@ class TrackerPage(QWidget):
         left.addWidget(self.notice_frame)
 
         left.addWidget(label("Your hunt at a glance", "heading"))
-        left.addWidget(label("Your totals and recent activity, in one place.", "muted"))
+        subtitle_row = QHBoxLayout()
+        subtitle_row.addWidget(label("Your totals and recent activity, in one place.", "muted"), 1)
+        self.edit_total = QPushButton("Edit total...")
+        self.edit_total.setToolTip("Change your total, undo a change, or import from ChestCounter or chest-tracker.")
+        self.edit_total.clicked.connect(window.open_total_dialog)
+        subtitle_row.addWidget(self.edit_total)
+        left.addLayout(subtitle_row)
         self.stage = ChestStage()
         left.addWidget(self.stage, 1)
         columns.addLayout(left, 1)
@@ -560,6 +670,8 @@ class TrackerPage(QWidget):
         session_row.addWidget(label("chests since launch", "muted"), 0, Qt.AlignmentFlag.AlignBottom)
         session_row.addStretch(1)
         session_layout.addLayout(session_row)
+        self.session_matches = label("No matches finished yet this session", "small", wrap=True)
+        session_layout.addWidget(self.session_matches)
         side.addWidget(session_card)
 
         match_card = QFrame()
@@ -574,6 +686,8 @@ class TrackerPage(QWidget):
         match_row.addWidget(label("chests this match", "muted"), 0, Qt.AlignmentFlag.AlignBottom)
         match_row.addStretch(1)
         match_layout.addLayout(match_row)
+        self.last_match = label("", "small", wrap=True)
+        match_layout.addWidget(self.last_match)
         self.match_summary = label("No finished matches yet", "small", wrap=True)
         match_layout.addWidget(self.match_summary)
         match_buttons = QHBoxLayout()
@@ -627,6 +741,13 @@ class TrackerPage(QWidget):
         self.match_count.setText(f"{matches.current:,}")
         self.new_match.setEnabled(matches.current > 0)
         self.export_matches.setEnabled(bool(matches.history))
+        last = matches.last_chests()
+        self.last_match.setText("" if last is None else f"Last match: {last:,} {'chest' if last == 1 else 'chests'}")
+        done = matches.session_matches
+        self.session_matches.setText(
+            "No matches finished yet this session" if not done
+            else f"{done:,} {'match' if done == 1 else 'matches'} finished this session"
+        )
         summary = matches.stats()
         if summary is None:
             self.match_summary.setText("No finished matches yet")
@@ -886,6 +1007,10 @@ class SetupPage(QWidget):
         self.overlay_match.setChecked(settings["overlay_show_match"])
         self.overlay_match.toggled.connect(window.set_overlay_match)
         layout.addWidget(self.overlay_match)
+        self.overlay_last = QCheckBox("Also show the last match and this session")
+        self.overlay_last.setChecked(settings["overlay_show_last"])
+        self.overlay_last.toggled.connect(window.set_overlay_last)
+        layout.addWidget(self.overlay_last)
         self.size_slider, self.size_text = self._option_slider(
             layout, "Size", 100 * MIN_SCALE, 100 * MAX_SCALE,
             100 * clamp(settings["overlay_scale"], MIN_SCALE, MAX_SCALE, 1.0), "{}%", self._save_overlay_scale,
@@ -1552,6 +1677,7 @@ class MainWindow(QMainWindow):
         self.settings = Settings(folder)
         self.stats = Stats(folder)
         self.matches = MatchLog(folder / "matches.json")
+        self.adjustments = Adjustments(folder / "adjustments.json")
         self.recap = RecapDetector.load_bundled()  # None: matches are then ended with the key or button
         self.engine: WatchEngine | None = None
         self.bot: BotRunner | None = None
@@ -1567,6 +1693,7 @@ class MainWindow(QMainWindow):
         self.overlay.set_count(self.stats.total)
         self.overlay.set_match(self.matches.current)
         self.overlay.set_match_visible(self.settings["overlay_show_match"])
+        self.overlay.set_last_visible(self.settings["overlay_show_last"])
         self.overlay.position_saved.connect(self._save_overlay_position)
         self._overlay_positioning = False
         self._overlay_screen = None
@@ -1916,7 +2043,50 @@ class MainWindow(QMainWindow):
         self.settings.set(overlay_show_match=shown)
         self.overlay.set_match_visible(shown)
 
+    def set_overlay_last(self, shown: bool) -> None:
+        self.settings.set(overlay_show_last=shown)
+        self.overlay.set_last_visible(shown)
+
+    def set_total(self, new_total: int) -> int:
+        """Make the lifetime total this number. Returns how much it changed. The change is kept so it can be undone."""
+        changed = self.stats.adjust_total(new_total - self.stats.total)
+        if changed:
+            self.adjustments.add(changed, "hand", f"Total set to {self.stats.total:,}")
+            log.info("Total changed by hand by %+d", changed)
+        self._refresh_total()
+        return changed
+
+    def undo_adjustment(self, entry_id: str) -> None:
+        entry = self.adjustments.remove(entry_id)
+        if entry is None:
+            return
+        self.stats.adjust_total(-entry["chests"])
+        if entry["kind"] == "import":
+            self.matches.remove_batch(entry["id"])
+        log.info("Undid a total change of %+d", entry["chests"])
+        self._refresh_total()
+
+    def apply_import(self, offer) -> int:
+        """Add another tracker's total and matches. Returns how many matches were added."""
+        entry = self.adjustments.add(offer.chests, "import", offer.note)
+        if entry is None:
+            return 0
+        added = self.matches.add_imported(entry["id"], offer.matches)
+        self.stats.adjust_total(offer.chests)
+        log.info("Imported %d chests and %d matches from %s", offer.chests, added, offer.source)
+        self._refresh_total()
+        return added
+
+    def _refresh_total(self) -> None:
+        self.overlay.set_count(self.stats.total)
+        self.tracker.stage.set_count(self.stats.total)
+        self._show_stats()
+
+    def open_total_dialog(self) -> None:
+        TotalDialog(self).exec()
+
     def _show_stats(self) -> None:
+        self.overlay.set_last(self.matches.last_chests(), self.stats.session, self.matches.session_matches)
         self.tracker.show_matches(self.matches)
         self.tracker.show_stats(self.stats)
         self.tray.setToolTip(f"Chest Tracker: {self.stats.total:,} chests")

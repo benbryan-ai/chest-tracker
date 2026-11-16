@@ -11,6 +11,7 @@ from widgets import ASH, BONE, DUSK, EMBER, GOLD, GOLD_LIGHT, LINE, MINT
 
 
 BASE_WIDTH, BASE_HEIGHT = 220, 76
+EXTRA_HEIGHT = 20  # the extra row for the last match and the session
 MIN_SCALE, MAX_SCALE = 0.7, 2.0
 MIN_OPACITY, MAX_OPACITY = 0.3, 1.0
 
@@ -43,10 +44,14 @@ class ChestOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.scale = 1.0
         self.opacity = 1.0
-        self.setFixedSize(BASE_WIDTH, BASE_HEIGHT)
+        self.setFixedSize(BASE_WIDTH, BASE_HEIGHT + EXTRA_HEIGHT)
         self.count = 0
         self.match = 0
         self.show_match = True
+        self.show_last = True
+        self.last_match: int | None = None
+        self.session = 0
+        self.session_matches = 0
         self.paused = False
         self.positioning = False
         self.click_through = False
@@ -59,7 +64,7 @@ class ChestOverlay(QWidget):
 
     def set_scale(self, scale: float) -> None:
         self.scale = clamp(scale, MIN_SCALE, MAX_SCALE, 1.0)
-        self.setFixedSize(round(BASE_WIDTH * self.scale), round(BASE_HEIGHT * self.scale))
+        self._resize()
         self.update()
 
     def set_opacity(self, opacity: float) -> None:
@@ -73,6 +78,21 @@ class ChestOverlay(QWidget):
     def set_match(self, count: int) -> None:
         self.match = count
         self.update()
+
+    def set_last(self, last: int | None, session: int, session_matches: int) -> None:
+        self.last_match, self.session, self.session_matches = last, session, session_matches
+        self.update()
+
+    def set_last_visible(self, shown: bool) -> None:
+        self.show_last = shown
+        self._resize()
+        self.update()
+
+    def _height(self) -> int:
+        return BASE_HEIGHT + (EXTRA_HEIGHT if self.show_last else 0)
+
+    def _resize(self) -> None:
+        self.setFixedSize(round(BASE_WIDTH * self.scale), round(self._height() * self.scale))
 
     def set_match_visible(self, shown: bool) -> None:
         self.show_match = shown
@@ -167,7 +187,7 @@ class ChestOverlay(QWidget):
         background.setAlpha(232)
         painter.setPen(QPen(QColor(LINE), 1.5))
         painter.setBrush(background)
-        painter.drawRoundedRect(QRectF(1, 1, BASE_WIDTH - 2, BASE_HEIGHT - 2), 13, 13)
+        painter.drawRoundedRect(QRectF(1, 1, BASE_WIDTH - 2, self._height() - 2), 13, 13)
 
         if self.positioning:
             heading, heading_color = "DRAG TO POSITION", MINT
@@ -193,10 +213,18 @@ class ChestOverlay(QWidget):
             painter.setFont(QFont("Bahnschrift SemiBold Condensed", 20, QFont.Weight.Bold))
             painter.drawText(QRectF(BASE_WIDTH - 104, 32, 90, 32), Qt.AlignmentFlag.AlignRight, f"{self.match:,}")
 
+        if self.show_last:
+            painter.setPen(QColor(ASH))
+            painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+            last = "-" if self.last_match is None else f"{self.last_match:,}"
+            session = f"{self.session:,}" + (f" · {self.session_matches} {'match' if self.session_matches == 1 else 'matches'}" if self.session_matches else "")
+            painter.drawText(QRectF(14, BASE_HEIGHT - 6, BASE_WIDTH - 28, 18), Qt.AlignmentFlag.AlignLeft, f"LAST {last}")
+            painter.drawText(QRectF(14, BASE_HEIGHT - 6, BASE_WIDTH - 28, 18), Qt.AlignmentFlag.AlignRight, f"Session {session}")
+
         if self._flash > 0:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(212, 175, 55, int(self._flash * 70)))
-            painter.drawRoundedRect(QRectF(2, 2, BASE_WIDTH - 4, BASE_HEIGHT - 4), 12, 12)
+            painter.drawRoundedRect(QRectF(2, 2, BASE_WIDTH - 4, self._height() - 4), 12, 12)
         for x, y, _vx, _vy, life, color in self._particles:
             painter.setPen(Qt.PenStyle.NoPen)
             particle = QColor(color)

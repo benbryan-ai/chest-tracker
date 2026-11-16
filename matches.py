@@ -23,8 +23,10 @@ class MatchStats:
 def _clean(m: dict) -> dict:
     """A saved match, keeping only the fields we know. The replay fields are optional."""
     record = {"start": str(m["start"]), "end": str(m["end"]), "chests": int(m["chests"])}
-    if m.get("source") == "replay":
-        record.update(source="replay", opened=max(0, int(m["opened"])), broken=max(0, int(m["broken"])))
+    if m.get("source") in ("replay", "import"):
+        record.update(source=m["source"], opened=max(0, int(m["opened"])), broken=max(0, int(m["broken"])))
+        if m["source"] == "import":
+            record["batch"] = str(m["batch"])
     return record
 
 
@@ -39,6 +41,7 @@ class MatchLog:
         self.current = 0
         self.started: datetime | None = None
         self.history: list[dict] = []
+        self.session_matches = 0  # finished since the app started
         saved = read_json(path) or {}
         try:
             history = saved.get("history", [])
@@ -75,6 +78,8 @@ class MatchLog:
             self.history = (self.history + [record])[-MAX_HISTORY:]
         self.current = 0
         self.started = None
+        if record:
+            self.session_matches += 1
         self.save()
         return record
 
@@ -95,6 +100,31 @@ class MatchLog:
                 self.save()
                 return change
         return 0
+
+    def last_chests(self) -> int | None:
+        """The chest count of the most recent finished match."""
+        return self.history[-1]["chests"] if self.history else None
+
+    def add_imported(self, batch: str, records: list[dict]) -> int:
+        """Add matches brought in from another tracker. Matches already here (same start) are skipped."""
+        known = {m["start"] for m in self.history}
+        new = []
+        for r in records:
+            if r["start"] in known or r["chests"] < 1:
+                continue
+            known.add(r["start"])
+            new.append({"start": r["start"], "end": r["end"], "chests": r["chests"], "source": "import",
+                        "opened": r["opened"], "broken": r["broken"], "batch": batch})
+        self.history = sorted(self.history + new, key=lambda m: m["start"])[-MAX_HISTORY:]
+        self.save()
+        return len(new)
+
+    def remove_batch(self, batch: str) -> int:
+        """Take back an import: removes the matches it added."""
+        before = len(self.history)
+        self.history = [m for m in self.history if m.get("batch") != batch]
+        self.save()
+        return before - len(self.history)
 
     def stats(self) -> MatchStats | None:
         counts = [m["chests"] for m in self.history]
@@ -117,6 +147,6 @@ class MatchLog:
             for number, m in enumerate(self.history, 1):
                 writer.writerow([
                     number, m["start"], m["end"], m["chests"], m.get("opened", ""), m.get("broken", ""),
-                    "replay" if m.get("source") == "replay" else "screen",
+                    m.get("source", "screen") if m.get("source") in ("replay", "import") else "screen",
                 ])
         return len(self.history)
