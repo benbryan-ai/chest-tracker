@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import replays
 from settings import _write_json, read_json
 
 MAX_HISTORY = 5000
@@ -27,6 +28,9 @@ def _clean(m: dict) -> dict:
         record.update(source=m["source"], opened=max(0, int(m["opened"])), broken=max(0, int(m["broken"])))
         if m.get("batch"):
             record["batch"] = str(m["batch"])
+        kinds = replays.clean_kinds(m.get("kinds"))
+        if kinds:
+            record["kinds"] = kinds
     return record
 
 
@@ -83,7 +87,7 @@ class MatchLog:
         self.save()
         return record
 
-    def apply_replay(self, record: dict, chests: int, opened: int, broken: int) -> int:
+    def apply_replay(self, record: dict, chests: int, opened: int, broken: int, kinds: dict | None = None) -> int:
         """Replace a finished match's screen count with the replay's. Returns how many chests it changed by.
 
         `record` is what finish() returned. Returns 0 (and changes nothing) if it is no longer in the history.
@@ -92,7 +96,7 @@ class MatchLog:
             saved = self.history[index]
             if saved["start"] == record["start"] and saved["end"] == record["end"]:
                 change = chests - saved["chests"]
-                updated = dict(saved, chests=chests, opened=opened, broken=broken, source="replay")
+                updated = dict(saved, chests=chests, opened=opened, broken=broken, source="replay", kinds=kinds or {})
                 if chests >= 1:
                     self.history[index] = updated
                 else:
@@ -114,7 +118,7 @@ class MatchLog:
                 continue
             known.add(r["start"])
             new.append({"start": r["start"], "end": r["end"], "chests": r["chests"], "source": "import",
-                        "opened": r["opened"], "broken": r["broken"], "batch": batch})
+                        "opened": r["opened"], "broken": r["broken"], "batch": batch, "kinds": r.get("kinds", {})})
         self.history = sorted(self.history + new, key=lambda m: m["start"])[-MAX_HISTORY:]
         self.save()
         return len(new)

@@ -12,7 +12,7 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -35,6 +35,7 @@ class ReplayCount:
     start: datetime  # local time, no timezone
     end: datetime
     note: str = ""
+    kinds: dict = field(default_factory=dict)  # "Chest": 12, "Buried chest": 2 ...
 
 
 def default_replay_folder() -> Path:
@@ -69,6 +70,20 @@ def _utc_to_local(text: str) -> datetime:
     return _local(moment)
 
 
+def clean_kinds(raw) -> dict:
+    """A {name: count} table of chest types, keeping only sensible entries."""
+    if not isinstance(raw, dict):
+        return {}
+    kinds = {}
+    for name, number in raw.items():
+        try:
+            if str(name) and int(number) > 0:
+                kinds[str(name)[:60]] = int(number)
+        except (TypeError, ValueError):
+            continue
+    return kinds
+
+
 def parse_scan(entry: dict) -> ReplayCount | None:
     """One finished replay from chest-scan's JSON, or None if it isn't a readable finished match."""
     if not isinstance(entry, dict) or entry.get("Status") != "ok":
@@ -84,7 +99,8 @@ def parse_scan(entry: dict) -> ReplayCount | None:
     if chests < 0 or seconds <= 0:
         return None
     note = str(entry.get("WhyNot") or "") if entry.get("CountsAsMatch") is False else ""
-    return ReplayCount(str(entry.get("File", "")), chests, opened, broken, start, start + timedelta(seconds=seconds), note)
+    return ReplayCount(str(entry.get("File", "")), chests, opened, broken, start, start + timedelta(seconds=seconds), note,
+                       clean_kinds(entry.get("Kinds")))
 
 
 def run_scan(scanner: Path, files: list[Path], timeout: float = SCAN_TIMEOUT) -> list[ReplayCount]:

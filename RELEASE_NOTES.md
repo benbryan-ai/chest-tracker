@@ -3,6 +3,13 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.4.0
+
+- **Report tab.** Your total, this session, matches, average per match and best match; a bar chart of chests per day (last 14 days); chests by type (chest, rare chest, buried chest and so on); and your latest matches, 10 at a time. **Open as a web page** saves `report.html` in the app's data folder and opens it in your browser; it's a single file you can keep or share, and it needs nothing from the internet.
+- Chest types come from the replay, so matches counted from the screen show as "Type not recorded", and matches counted from a replay (new ones, or through **Count my past replays**) fill in the types.
+- **Settings tab.** Choose the replay folder (or keep the default), 12 or 24 hour clock, minimize to the system tray, and start with Windows (minimized to the tray, in the installed .exe only). There's also a button that opens the data folder.
+- Replay-counted matches are saved with their chest types, and the export and the report use the clock you chose.
+
 ## v1.3.1
 
 - **Count my past replays.** In **Edit total...**, a new button reads the replays Fortnite has saved on your PC and counts them. You pick the season start date (the Treasure Hunters season began 2026-11-01); older replays are ignored.

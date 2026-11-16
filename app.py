@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PySide6.QtGui import QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 import updater
 from settings import data_dir, import_old_setup
@@ -75,7 +75,8 @@ def main() -> int:
     icon = QIcon(str(resource_folder() / "assets" / "icon.png"))
     app.setWindowIcon(icon)
     window = MainWindow(folder, icon)
-    window.show()
+    if not ("--minimized" in sys.argv and QSystemTrayIcon.isSystemTrayAvailable()):
+        window.show()  # started by Windows with --minimized: stay in the tray
 
     QLocalServer.removeServer(INSTANCE_NAME)
     server = QLocalServer()

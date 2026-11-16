@@ -144,7 +144,7 @@ static ScanResult Scan(FileInfo file, TimeSpan timeout)
         result.Chests = match.Chests.Count;
         result.Broken = match.Chests.Count(c => c.Destroyed);
         result.Opened = result.Chests - result.Broken;
-        result.Kinds = match.Chests.GroupBy(c => ChestKinds.Canonical(c.Kind)).ToDictionary(g => g.Key, g => g.Count());
+        result.Kinds = match.Chests.GroupBy(c => L.Name(ChestKinds.Canonical(c.Kind))).ToDictionary(g => g.Key, g => g.Count());
         result.VehicleLootUnexplained = match.UnrecordedVehicleLoot;
         result.TeamChests = match.TeamChestsOpened;
         return result;

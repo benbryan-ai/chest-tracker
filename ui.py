@@ -35,6 +35,9 @@ from recap import RecapDetector
 import backfill
 import importer
 import replays
+import report
+import startup
+import timefmt
 import updater
 from adjustments import Adjustments
 from version import VERSION
@@ -70,6 +73,7 @@ QScrollArea {{ border: none; }}
 #rail {{ background: transparent; }}
 #statCard, #activityCard {{ background: {DUSK}; border: 1px solid {LINE}; border-radius: 12px; }}
 #cardTitle {{ color: {ASH}; font-size: 12px; font-weight: 700; letter-spacing: 1px; }}
+#bigNumber {{ font-family: "Bahnschrift SemiBold Condensed"; font-size: 30px; color: {GOLD}; }}
 #sessionCount {{ font-family: "Bahnschrift SemiBold Condensed"; font-size: 34px; color: {BONE}; }}
 #activityList {{ background: transparent; border: none; outline: none; }}
 #activityList::item {{ padding: 8px 0; border-bottom: 1px solid {LINE}; }}
@@ -682,6 +686,7 @@ class TrackerPage(QWidget):
     def __init__(self, window: "MainWindow"):
         super().__init__()
         self.setObjectName("page")
+        self.clock_format = window.settings["clock_format"]
         columns = QHBoxLayout(self)
         columns.setContentsMargins(24, 16, 24, 20)
         columns.setSpacing(16)
@@ -842,7 +847,7 @@ class TrackerPage(QWidget):
             self.activity.takeItem(self.activity.row(self.empty))
             self.empty = None
         top = self.activity.item(0)
-        line = f"{datetime.now():%H:%M}   {text}"
+        line = f"{timefmt.format_time(datetime.now(), self.clock_format)}   {text}"
         if top and top.text() == line:
             return
         item = QListWidgetItem(line)
@@ -1734,6 +1739,208 @@ class GroupPage(QWidget):
         self.group_total.setText(f"{total:,} chests between you" if rows else "")
 
 
+def clear_layout(layout) -> None:
+    """Remove every widget from a layout right away (deleteLater alone leaves them drawn until the next event)."""
+    while layout.count():
+        widget = layout.takeAt(0).widget()
+        if widget is not None:
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
+
+
+class DayChart(QWidget):
+    """Bars of chests per day."""
+
+    def __init__(self):
+        super().__init__()
+        self.days: list[tuple] = []
+        self.setMinimumHeight(150)
+
+    def set_days(self, days: list[tuple]) -> None:
+        self.days = days
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.days:
+            return
+        top = max((n for _, n in self.days), default=0) or 1
+        width = self.width() / len(self.days)
+        base = self.height() - 18
+        for index, (day, count) in enumerate(self.days):
+            height = (base - 16) * count / top
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(GOLD))
+            painter.drawRoundedRect(QRect(round(index * width + 4), round(base - height), max(2, round(width - 8)), max(1, round(height))), 3, 3)
+            painter.setPen(QColor(BONE))
+            painter.drawText(QRect(round(index * width), round(base - height) - 16, round(width), 14), Qt.AlignmentFlag.AlignCenter, str(count) if count else "")
+            painter.setPen(QColor(ASH))
+            painter.drawText(QRect(round(index * width), base + 2, round(width), 14), Qt.AlignmentFlag.AlignCenter, str(day.day))
+
+
+class ReportPage(QWidget):
+    PAGE = 10  # matches shown at a time
+
+    def __init__(self, window: "MainWindow"):
+        super().__init__()
+        self.window_ = window
+        self.shown = self.PAGE
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll, layout = scroll_page()
+        outer.addWidget(scroll)
+        head = QHBoxLayout()
+        head.addWidget(label("Report", "heading"), 1)
+        self.open_button = QPushButton("Open as a web page")
+        self.open_button.setToolTip("Saves report.html in the app's data folder and opens it in your browser.")
+        self.open_button.clicked.connect(window.open_report)
+        head.addWidget(self.open_button)
+        layout.addLayout(head)
+        self.tiles = QHBoxLayout()
+        layout.addLayout(self.tiles)
+        layout.addWidget(label("Chests per day", "subheading"))
+        self.chart = DayChart()
+        layout.addWidget(self.chart)
+        layout.addWidget(label("By chest type", "subheading"))
+        self.kinds = QVBoxLayout()
+        layout.addLayout(self.kinds)
+        layout.addWidget(label("Latest matches", "subheading"))
+        self.latest = QListWidget()
+        self.latest.setObjectName("activityList")
+        layout.addWidget(self.latest)
+        self.more = QPushButton("Show 10 more")
+        self.more.clicked.connect(self.show_more)
+        layout.addWidget(self.more)
+        layout.addStretch(1)
+
+    def show_more(self) -> None:
+        self.shown += self.PAGE
+        self.refresh()
+
+    def refresh(self) -> None:
+        window = self.window_
+        data = report.build(window.matches.history, window.stats.total, window.stats.session)
+        clear_layout(self.tiles)
+        for value, name in (
+            (f"{data.total:,}", "chests in total"), (f"{data.session:,}", "this session"),
+            (f"{data.match_count:,}", "matches"), (f"{data.average:.1f}", "per match"), (f"{data.best:,}", "best match"),
+        ):
+            card = QFrame()
+            card.setObjectName("statCard")
+            inner = QVBoxLayout(card)
+            inner.setContentsMargins(14, 10, 14, 10)
+            inner.addWidget(label(value, "bigNumber"))
+            inner.addWidget(label(name, "muted"))
+            self.tiles.addWidget(card)
+        self.chart.set_days(data.days)
+        clear_layout(self.kinds)
+        for name, count in data.kinds or [("Nothing yet", 0)]:
+            self.kinds.addWidget(label(f"{name}: {count:,}" if count else name, "small"))
+        self.latest.clear()
+        clock = window.settings["clock_format"]
+        for m in data.latest[: self.shown]:
+            self.latest.addItem(report.match_line(m, clock))
+        if not data.latest:
+            self.latest.addItem("No finished matches yet")
+        self.more.setVisible(len(data.latest) > self.shown)
+        self.latest.setMinimumHeight(min(self.shown, max(1, len(data.latest))) * 26 + 12)
+
+
+class SettingsPage(QWidget):
+    def __init__(self, window: "MainWindow"):
+        super().__init__()
+        self.window_ = window
+        settings = window.settings
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll, layout = scroll_page()
+        outer.addWidget(scroll)
+        layout.addWidget(label("Settings", "heading"))
+
+        layout.addWidget(label("Replays", "subheading"))
+        layout.addWidget(label(
+            "Where Fortnite keeps its replay files. Leave it on the default unless you moved them.", "muted", wrap=True,
+        ))
+        row = QHBoxLayout()
+        self.replay_folder = QLineEdit(settings["replay_folder"])
+        self.replay_folder.setPlaceholderText(str(replays.default_replay_folder()))
+        self.replay_folder.editingFinished.connect(self.save_folder)
+        row.addWidget(self.replay_folder, 1)
+        browse = QPushButton("Browse...")
+        browse.clicked.connect(self.browse)
+        row.addWidget(browse)
+        default = QPushButton("Use default")
+        default.clicked.connect(self.use_default)
+        row.addWidget(default)
+        layout.addLayout(row)
+
+        layout.addSpacing(8)
+        layout.addWidget(label("Clock", "subheading"))
+        self.clock = QComboBox()
+        for value, name in timefmt.CLOCKS:
+            self.clock.addItem(name, value)
+        self.clock.setCurrentIndex(max(0, self.clock.findData(settings["clock_format"])))
+        self.clock.currentIndexChanged.connect(self.save_clock)
+        layout.addWidget(self.clock)
+
+        layout.addSpacing(8)
+        layout.addWidget(label("Window", "subheading"))
+        self.tray = QCheckBox("Minimize to the system tray instead of the taskbar")
+        self.tray.setChecked(bool(settings["minimize_to_tray"]))
+        self.tray.toggled.connect(lambda on: window.settings.set(minimize_to_tray=on))
+        layout.addWidget(self.tray)
+        exe = updater.running_exe()
+        self.startup = QCheckBox("Start with Windows, minimized to the tray")
+        self.startup.setEnabled(startup.supported(exe))
+        self.startup.setChecked(startup.is_enabled())
+        self.startup.toggled.connect(self.save_startup)
+        layout.addWidget(self.startup)
+        self.startup_note = label(
+            "" if startup.supported(exe) else "Only available in the installed Chest-Tracker.exe on Windows.",
+            "muted", wrap=True,
+        )
+        layout.addWidget(self.startup_note)
+
+        layout.addSpacing(8)
+        layout.addWidget(label("Files", "subheading"))
+        folder = QPushButton("Open the data folder")
+        folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(window.folder))))
+        layout.addWidget(folder)
+        layout.addStretch(1)
+
+    def save_folder(self) -> None:
+        self.window_.settings.set(replay_folder=self.replay_folder.text().strip())
+
+    def browse(self) -> None:
+        start = self.replay_folder.text().strip() or str(replays.default_replay_folder())
+        chosen = QFileDialog.getExistingDirectory(self, "Fortnite replay folder", start)
+        if chosen:
+            self.replay_folder.setText(chosen)
+            self.save_folder()
+
+    def use_default(self) -> None:
+        self.replay_folder.setText("")
+        self.save_folder()
+
+    def save_clock(self) -> None:
+        self.window_.settings.set(clock_format=self.clock.currentData())
+        self.window_.tracker.clock_format = self.clock.currentData()
+        self.window_.report.refresh()
+
+    def save_startup(self, on: bool) -> None:
+        done = startup.set_enabled(on, updater.running_exe())
+        if not done:
+            self.startup.blockSignals(True)
+            self.startup.setChecked(not on)
+            self.startup.blockSignals(False)
+            self.startup_note.setText("Windows wouldn't let the app change this.")
+            return
+        self.window_.settings.set(start_with_windows=on)
+        self.startup_note.setText("")
+
+
 class MainWindow(QMainWindow):
     chest = Signal(int, str)
     attempt = Signal(str)
@@ -1807,10 +2014,12 @@ class MainWindow(QMainWindow):
         self.setup = SetupPage(self)
         self.group = GroupPage(self)
         self.fortnite_stats = FortniteStatsPage(self)
+        self.report = ReportPage(self)
+        self.settings_page = SettingsPage(self)
         self.nav = QButtonGroup(self)
         for index, (name, page) in enumerate(
             (("Tracker", self.tracker), ("Setup", self.setup), ("Group", self.group),
-             ("Fortnite Stats", self.fortnite_stats))
+             ("Fortnite Stats", self.fortnite_stats), ("Report", self.report), ("Settings", self.settings_page))
         ):
             self.stack.addWidget(page)
             button = QPushButton(name)
@@ -1820,6 +2029,7 @@ class MainWindow(QMainWindow):
             self.nav.addButton(button, index)
             top.addWidget(button)
         self.nav.idClicked.connect(self.stack.setCurrentIndex)
+        self.stack.currentChanged.connect(lambda index: self.report.refresh() if self.stack.widget(index) is self.report else None)
         self.nav.button(0).setChecked(True)
         top.addStretch(1)
         self.pill = Pill()
@@ -2091,7 +2301,7 @@ class MainWindow(QMainWindow):
             return
         if found.note:
             log.info("Replay %s: %s", found.file, found.note)
-        change = self.matches.apply_replay(record, found.chests, found.opened, found.broken)
+        change = self.matches.apply_replay(record, found.chests, found.opened, found.broken, found.kinds)
         log.info("Replay %s: %d chests (%d opened, %d broken); screen had %d",
                  found.file, found.chests, found.opened, found.broken, record["chests"])
         changed = self.stats.add(change) if change else 0
@@ -2176,12 +2386,27 @@ class MainWindow(QMainWindow):
         self.tracker.stage.set_count(self.stats.total)
         self._show_stats()
 
+    def open_report(self) -> None:
+        """Save the report as a web page next to the app's data and open it."""
+        data = report.build(self.matches.history, self.stats.total, self.stats.session)
+        path = self.folder / "report.html"
+        path.write_text(report.render_html(data, self.settings["clock_format"]), encoding="utf-8")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if (event.type() == event.Type.WindowStateChange and self.isMinimized() and self.settings["minimize_to_tray"]
+                and QSystemTrayIcon.isSystemTrayAvailable()):
+            QTimer.singleShot(0, self.hide)  # once Windows has finished minimizing
+
     def open_total_dialog(self) -> None:
         TotalDialog(self).exec()
 
     def _show_stats(self) -> None:
         self.overlay.set_last(self.matches.last_chests(), self.stats.session, self.matches.session_matches)
         self.tracker.show_matches(self.matches)
+        if self.stack.currentWidget() is self.report:
+            self.report.refresh()
         self.tracker.show_stats(self.stats)
         self.tray.setToolTip(f"Chest Tracker: {self.stats.total:,} chests")
 

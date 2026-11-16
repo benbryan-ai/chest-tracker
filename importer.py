@@ -49,6 +49,25 @@ def _load(path: Path):
         return None
 
 
+FRENCH_KINDS = {
+    "Coffre": "Chest", "Coffre rare": "Rare chest", "Coffre enterré": "Buried chest",
+    "Coffre d'esprit (rare)": "Sprite chest (rare)", "Coffre des affiches d'esprit": "Sprite poster chest",
+    "Autre coffre": "Other chest",
+}
+
+
+def _kinds(entry) -> dict:
+    """How many of each chest type, from the other tracker's per-chest list (French names turned to English)."""
+    found: dict = {}
+    chests = _field(entry, "Chests")
+    for c in chests if isinstance(chests, list) else []:
+        name = str(_field(c, "Kind") or "")
+        if name:
+            name = FRENCH_KINDS.get(name, name)
+            found[name] = found.get(name, 0) + 1
+    return found
+
+
 def _match(entry, total: int, broken: int) -> dict | None:
     if total < 1:
         return None
@@ -60,7 +79,7 @@ def _match(entry, total: int, broken: int) -> dict | None:
     end = start + timedelta(seconds=int(seconds)) if isinstance(seconds, (int, float)) and seconds > 0 else start
     return {
         "start": start.isoformat(timespec="seconds"), "end": end.isoformat(timespec="seconds"),
-        "chests": total, "opened": max(0, total - broken), "broken": broken,
+        "chests": total, "opened": max(0, total - broken), "broken": broken, "kinds": _kinds(entry),
     }
 
 

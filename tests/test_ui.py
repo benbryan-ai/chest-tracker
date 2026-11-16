@@ -854,3 +854,47 @@ def test_the_scan_dialog_rejects_a_bad_date_and_a_missing_reader(window, monkeyp
     monkeypatch.setattr(replays, "find_scanner", lambda: None)
     dialog.start_scan()
     assert "isn't part of this build" in dialog.status.text()
+
+
+# --- report and settings pages ---
+
+def test_the_report_page_shows_matches_ten_at_a_time(window):
+    window.matches.history = [
+        {"start": f"2026-11-{day:02}T20:00:00", "end": f"2026-11-{day:02}T20:10:00", "chests": day} for day in range(1, 26)
+    ]
+    window.report.refresh()
+    assert window.report.latest.count() == 10 and window.report.more.isVisibleTo(window.report)
+    window.report.show_more()
+    window.report.show_more()
+    assert window.report.latest.count() == 25 and not window.report.more.isVisibleTo(window.report)
+    assert "25 chests" in window.report.latest.item(0).text()
+
+
+def test_the_report_can_be_saved_as_a_web_page(window, monkeypatch):
+    opened = []
+    monkeypatch.setattr(ui.QDesktopServices, "openUrl", lambda url: opened.append(url) or True)
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    window.open_report()
+    assert (window.folder / "report.html").read_text(encoding="utf-8").count("Chest Tracker report") >= 1
+    assert opened and opened[0].isLocalFile()
+
+
+def test_settings_page_saves_its_choices(window):
+    page = window.settings_page
+    page.replay_folder.setText("  D:/Replays ")
+    page.save_folder()
+    assert window.settings["replay_folder"] == "D:/Replays"
+    page.use_default()
+    assert window.settings["replay_folder"] == ""
+    page.clock.setCurrentIndex(page.clock.findData("12"))
+    assert window.settings["clock_format"] == "12" and window.tracker.clock_format == "12"
+    page.tray.setChecked(True)
+    assert window.settings["minimize_to_tray"] is True
+    assert not page.startup.isEnabled()  # from source there is no program to start
+
+
+def test_the_activity_log_uses_the_chosen_clock(window):
+    window.tracker.clock_format = "12"
+    window.tracker.log("hello")
+    assert window.tracker.activity.item(0).text().split("   ")[0].endswith(("AM", "PM"))
