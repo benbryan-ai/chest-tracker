@@ -147,6 +147,20 @@ static ScanResult Scan(FileInfo file, TimeSpan timeout)
         result.Kinds = match.Chests.GroupBy(c => L.Name(ChestKinds.Canonical(c.Kind))).ToDictionary(g => g.Key, g => g.Count());
         result.VehicleLootUnexplained = match.UnrecordedVehicleLoot;
         result.TeamChests = match.TeamChestsOpened;
+        if (match.MatchStartUtc is DateTime started)
+        {
+            long Epoch(float seconds) => new DateTimeOffset(DateTime.SpecifyKind(started, DateTimeKind.Utc)).ToUnixTimeSeconds() + (long)seconds;
+            result.ChestTimes = match.Chests.Select(c => Epoch(c.TimeSeconds)).OrderBy(t => t).ToList();
+            result.Treasures = match.TreasureFinds.Select(t => new TreasureOut
+            {
+                Name = t.DisplayName,
+                PrizeId = t.PrizeId,
+                Kind = t.PrizeId != null ? TreasureCatalog.Find(t.PrizeId)?.Kind : null,
+                Golden = t.FromGoldenChest,
+                Source = t.SourceLabel,
+                At = t.ObtainedAtSeconds is float at ? Epoch(at) : null,
+            }).ToList();
+        }
         return result;
     }
     catch (Exception e)
@@ -180,4 +194,18 @@ internal sealed class ScanResult
     /// <summary>Loot piles along the player's drives with no recorded chest: the real count may be higher.</summary>
     public int VehicleLootUnexplained { get; set; }
     public int TeamChests { get; set; }
+    /// <summary>When each counted chest was searched (Unix seconds, UTC): treasure odds depend on the hour.</summary>
+    public List<long>? ChestTimes { get; set; }
+    public List<TreasureOut>? Treasures { get; set; }
+}
+
+internal sealed class TreasureOut
+{
+    public string Name { get; set; } = "";
+    public string? PrizeId { get; set; }
+    /// <summary>outfit, pickaxe, car, jam, loading or pirate-shop when the prize is known.</summary>
+    public string? Kind { get; set; }
+    public bool Golden { get; set; }
+    public string Source { get; set; } = "";
+    public long? At { get; set; }
 }

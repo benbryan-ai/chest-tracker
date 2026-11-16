@@ -30,6 +30,7 @@ if (Test-Path $scannerExe) {
     --add-data "$PSScriptRoot\assets\prompt_word.png;assets" `
     --add-data "$PSScriptRoot\assets\recap_play_again.png;assets" `
     --add-data "$PSScriptRoot\assets\recap_return.png;assets" `
+    --add-data "$PSScriptRoot\assets\content.json;assets" `
     @scannerArgs `
     --exclude-module tkinter `
     --distpath . --workpath build --specpath build `

@@ -31,6 +31,14 @@ def _clean(m: dict) -> dict:
         kinds = replays.clean_kinds(m.get("kinds"))
         if kinds:
             record["kinds"] = kinds
+        treasures = [dict(t, name=t["name"], kind=t.get("kind"), golden=t.get("golden") is True, at=t.get("at"),
+                          prize_id=t.get("prize_id"))
+                     for t in m.get("treasures", []) if isinstance(t, dict) and isinstance(t.get("name"), str)]
+        if treasures:
+            record["treasures"] = treasures[:50]
+        times = replays.clean_times(m.get("chest_times"))
+        if times:
+            record["chest_times"] = times
     return record
 
 
@@ -87,7 +95,8 @@ class MatchLog:
         self.save()
         return record
 
-    def apply_replay(self, record: dict, chests: int, opened: int, broken: int, kinds: dict | None = None) -> int:
+    def apply_replay(self, record: dict, chests: int, opened: int, broken: int, kinds: dict | None = None,
+                     treasures: list | None = None, chest_times: list | None = None) -> int:
         """Replace a finished match's screen count with the replay's. Returns how many chests it changed by.
 
         `record` is what finish() returned. Returns 0 (and changes nothing) if it is no longer in the history.
@@ -96,7 +105,8 @@ class MatchLog:
             saved = self.history[index]
             if saved["start"] == record["start"] and saved["end"] == record["end"]:
                 change = chests - saved["chests"]
-                updated = dict(saved, chests=chests, opened=opened, broken=broken, source="replay", kinds=kinds or {})
+                updated = dict(saved, chests=chests, opened=opened, broken=broken, source="replay", kinds=kinds or {},
+                               treasures=treasures or [], chest_times=chest_times or [])
                 if chests >= 1:
                     self.history[index] = updated
                 else:

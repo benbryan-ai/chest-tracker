@@ -3,6 +3,14 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.5.0
+
+- **Treasures tab** for the Treasure Hunters hunt: how many treasures you've found, this week's prizes (found or not yet), your chances for each kind of prize, upcoming Treasure Hours, and your latest finds.
+- Treasures are read from the replay after each match (the replay records the golden chest's prize), so they appear for matches counted from a replay, including **Count my past replays**. The tracker log shows "Treasure found: ..." when one turns up.
+- **Your chances** use the odds in the hunt data and the boosted odds during Treasure Hours, applied to each chest by the time it was searched. Chests counted only from the screen have just a match time, so they count at normal odds. The chance is shown as a percentage that never claims 100%.
+- **Hunt data stays current without a new version.** The weeks, prizes, odds and Treasure Hours come from ChestCounter's `content.json` (LED-N, MIT). A copy is built in; the app checks GitHub every couple of hours and only accepts a file that passes a strict check and has a higher revision, so a broken file can't replace a good one. Without a connection it just uses what it has.
+- ChestCounter's other messages in that file (about its own tool) are not shown here.
+
 ## v1.4.0
 
 - **Report tab.** Your total, this session, matches, average per match and best match; a bar chart of chests per day (last 14 days); chests by type (chest, rare chest, buried chest and so on); and your latest matches, 10 at a time. **Open as a web page** saves `report.html` in the app's data folder and opens it in your browser; it's a single file you can keep or share, and it needs nothing from the internet.

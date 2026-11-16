@@ -25,9 +25,16 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+def no_network(*args, **kwargs):
+    import requests
+
+    raise requests.ConnectionError("tests don't use the network")
+
+
 @pytest.fixture
 def window(app, tmp_path):
     main = ui.MainWindow(tmp_path, QIcon())
+    main.content_store.get = no_network  # the treasure data refresh must never reach the internet from a test
     yield main
     main._shut_down()
 
@@ -898,3 +905,36 @@ def test_the_activity_log_uses_the_chosen_clock(window):
     window.tracker.clock_format = "12"
     window.tracker.log("hello")
     assert window.tracker.activity.item(0).text().split("   ")[0].endswith(("AM", "PM"))
+
+
+# --- treasures ---
+
+def test_the_treasures_page_shows_finds_and_the_weeks_prizes(window):
+    import time as _t
+    now = int(_t.time())
+    window.matches.history = [{
+        "start": datetime.now().isoformat(timespec="seconds"), "end": datetime.now().isoformat(timespec="seconds"),
+        "chests": 3, "chest_times": [now - 60, now - 30, now], "source": "replay", "opened": 3, "broken": 0,
+        "treasures": [{"name": "Gold Thing", "kind": "outfit", "prize_id": None, "golden": True, "at": now}],
+    }]
+    window.treasures_page.refresh()
+    assert window.treasures_page.latest.item(0).text().endswith("Gold Thing")
+    assert window.treasures_page.chances.count() == len(window.content_store.content.odds)
+    assert "revision" in window.treasures_page.credit.text()
+
+
+def test_an_empty_treasures_page_still_draws(window):
+    window.treasures_page.refresh()
+    assert window.treasures_page.latest.item(0).text() == "No treasures found yet"
+    window.go_to(6)
+
+
+def test_a_replay_with_a_treasure_logs_it(window):
+    record = finished_match(window)
+    found = replays.ReplayCount("r", 2, 2, 0, datetime.now(), datetime.now(),
+                                treasures=[{"name": "Solid Gold X", "kind": "outfit", "prize_id": None, "golden": True, "at": 5}],
+                                chest_times=[1700000000, 1700000060])
+    window._on_replay_counted(record, found)
+    assert any("Solid Gold X" in window.tracker.activity.item(i).text() for i in range(window.tracker.activity.count()))
+    assert window.matches.history[-1]["treasures"][0]["name"] == "Solid Gold X"
+    assert window.matches.history[-1]["chest_times"] == [1700000000, 1700000060]

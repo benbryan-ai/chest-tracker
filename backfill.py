@@ -29,7 +29,8 @@ class BackfillPlan:
 
 def _record(r: ReplayCount) -> dict:
     return {"start": r.start.isoformat(timespec="seconds"), "end": r.end.isoformat(timespec="seconds"),
-            "chests": r.chests, "opened": r.opened, "broken": r.broken, "source": "replay", "kinds": r.kinds}
+            "chests": r.chests, "opened": r.opened, "broken": r.broken, "source": "replay", "kinds": r.kinds,
+            "treasures": r.treasures, "chest_times": r.chest_times}
 
 
 def scan_folder(

@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -35,8 +35,10 @@ from recap import RecapDetector
 import backfill
 import importer
 import replays
+import content
 import report
 import startup
+import treasures
 import timefmt
 import updater
 from adjustments import Adjustments
@@ -1941,6 +1943,129 @@ class SettingsPage(QWidget):
         self.startup_note.setText("")
 
 
+class TreasuresPage(QWidget):
+    def __init__(self, window: "MainWindow"):
+        super().__init__()
+        self.window_ = window
+        self.shown_finds = 10
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll, layout = scroll_page()
+        outer.addWidget(scroll)
+        layout.addWidget(label("Treasures", "heading"))
+        layout.addWidget(label(
+            "Golden chests and their prizes during the Treasure Hunters hunt. Treasures are read from the replay "
+            "after each match, so only matches counted from a replay show up here.", "muted", wrap=True,
+        ))
+        self.tiles = QHBoxLayout()
+        layout.addLayout(self.tiles)
+        self.week_title = label("", "subheading")
+        layout.addWidget(self.week_title)
+        self.week = QVBoxLayout()
+        layout.addLayout(self.week)
+        layout.addWidget(label("Your chances", "subheading"))
+        self.chances_note = label("", "muted", wrap=True)
+        layout.addWidget(self.chances_note)
+        self.chances = QVBoxLayout()
+        layout.addLayout(self.chances)
+        layout.addWidget(label("Treasure Hours", "subheading"))
+        self.hours = QVBoxLayout()
+        layout.addLayout(self.hours)
+        layout.addWidget(label("Latest finds", "subheading"))
+        self.latest = QListWidget()
+        self.latest.setObjectName("activityList")
+        layout.addWidget(self.latest)
+        self.more = QPushButton("Show 10 more")
+        self.more.clicked.connect(self.show_more)
+        layout.addWidget(self.more)
+        self.credit = label("", "muted", wrap=True)
+        layout.addWidget(self.credit)
+        layout.addStretch(1)
+
+    def show_more(self) -> None:
+        self.shown_finds += 10
+        self.refresh()
+
+    def refresh(self) -> None:
+        window = self.window_
+        content = window.content_store.content
+        history = window.matches.history
+        now = datetime.now(timezone.utc)
+        clock = window.settings["clock_format"]
+        all_finds = treasures.finds(history)
+        week = content.shown_week(now)
+
+        clear_layout(self.tiles)
+        collection = treasures.collection(content, all_finds, week)
+        got = sum(1 for _, n in collection if n)
+        for value, name in (
+            (f"{len(all_finds):,}", "treasures found"),
+            (f"{got} of {len(collection)}" if collection else "-", "prizes found this week"),
+            (f"{sum(n for p, n in collection if content.pirate_shop and p is content.pirate_shop):,}", "Pirate Shop Access"),
+        ):
+            card = QFrame()
+            card.setObjectName("statCard")
+            inner = QVBoxLayout(card)
+            inner.setContentsMargins(14, 10, 14, 10)
+            inner.addWidget(label(value, "bigNumber"))
+            inner.addWidget(label(name, "muted"))
+            self.tiles.addWidget(card)
+
+        self.week_title.setText(f"Week {week.number}: {week.title}" if week else "This week")
+        clear_layout(self.week)
+        for prize, count in collection or []:
+            kind = "" if prize.kind == "pirate-shop" else f" ({treasures.kind_name(prize.kind)})"
+            text = f"{'Found' if count else 'Not yet'}: {prize.name}{kind}"
+            if count > 1:
+                text += f" x{count}"
+            self.week.addWidget(label(text, "small" if not count else ""))
+        if not collection:
+            self.week.addWidget(label("No hunt data available.", "small"))
+        elif week and not week.prizes:
+            self.week.addWidget(label("This week's prizes haven't been announced in the data yet.", "small"))
+
+        clear_layout(self.chances)
+        rows = treasures.chances(content, history, now)
+        replay_chests = sum(1 for m in history if m.get("chest_times"))
+        self.chances_note.setText(
+            "Chance of finding each kind of prize at least once with the chests you opened, counting the boosted "
+            "odds during Treasure Hours. Weekly prizes use this week's chests; the rest use the whole hunt."
+            + ("" if replay_chests else " Chests counted from the screen only have a match time, so they count at the normal odds.")
+        )
+        for row in rows:
+            self.chances.addWidget(label(
+                f"{treasures.kind_name(row.odds.kind)}: 1 in {row.odds.one_in:,} per chest. "
+                f"{row.chests:,} chests, {treasures.percent(row.at_least_once)} chance so far "
+                f"(about {row.expected:.2f} expected)", "small",
+            ))
+        clear_layout(self.hours)
+        upcoming = [h for h in content.hours if h.end > now][:6]
+        for h in upcoming:
+            start, end = h.start.astimezone().replace(tzinfo=None), h.end.astimezone().replace(tzinfo=None)
+            boosts = ", ".join(f"{treasures.kind_name(k)} x{b:g}" for k, b in h.boosts.items())
+            state = "now" if h.start <= now else ("confirmed" if h.confirmed else "expected, not announced yet")
+            self.hours.addWidget(label(
+                f"{timefmt.format_stamp(start, clock)} to {timefmt.format_time(end, clock)} ({state}): {boosts}", "small",
+            ))
+        if not upcoming:
+            self.hours.addWidget(label("No Treasure Hours listed.", "small"))
+
+        self.latest.clear()
+        for f in all_finds[: self.shown_finds]:
+            moment = (f.when or f.match_start).astimezone().replace(tzinfo=None)
+            self.latest.addItem(f"{timefmt.format_stamp(moment, clock)}: {f.name}")
+        if not all_finds:
+            self.latest.addItem("No treasures found yet")
+        self.latest.setMinimumHeight(min(self.shown_finds, max(1, len(all_finds))) * 26 + 12)
+        self.more.setVisible(len(all_finds) > self.shown_finds)
+        self.credit.setText(
+            f"Hunt data: revision {content.revision} of ChestCounter's content.json (LED-N, MIT), "
+            "refreshed from GitHub every couple of hours."
+            + (f" Odds: {content.odds_source}" if content.odds_source else "")
+            + (f" Treasure Hours: {content.hours_source}" if content.hours_source else "")
+        )
+
+
 class MainWindow(QMainWindow):
     chest = Signal(int, str)
     attempt = Signal(str)
@@ -1955,6 +2080,7 @@ class MainWindow(QMainWindow):
     update_progress = Signal(float)
     update_ready = Signal(object, object)  # the release and its downloaded file
     update_failed = Signal(str)
+    content_refreshed = Signal()
     replay_counted = Signal(object, object)  # the saved match, and its ReplayCount (None: not found)
 
     def __init__(self, folder: Path, icon: QIcon):
@@ -2014,12 +2140,15 @@ class MainWindow(QMainWindow):
         self.setup = SetupPage(self)
         self.group = GroupPage(self)
         self.fortnite_stats = FortniteStatsPage(self)
+        self.content_store = content.ContentStore(folder)
         self.report = ReportPage(self)
+        self.treasures_page = TreasuresPage(self)
         self.settings_page = SettingsPage(self)
         self.nav = QButtonGroup(self)
         for index, (name, page) in enumerate(
             (("Tracker", self.tracker), ("Setup", self.setup), ("Group", self.group),
-             ("Fortnite Stats", self.fortnite_stats), ("Report", self.report), ("Settings", self.settings_page))
+             ("Fortnite Stats", self.fortnite_stats), ("Report", self.report), ("Settings", self.settings_page),
+             ("Treasures", self.treasures_page))
         ):
             self.stack.addWidget(page)
             button = QPushButton(name)
@@ -2029,7 +2158,7 @@ class MainWindow(QMainWindow):
             self.nav.addButton(button, index)
             top.addWidget(button)
         self.nav.idClicked.connect(self.stack.setCurrentIndex)
-        self.stack.currentChanged.connect(lambda index: self.report.refresh() if self.stack.widget(index) is self.report else None)
+        self.stack.currentChanged.connect(self._page_shown)
         self.nav.button(0).setChecked(True)
         top.addStretch(1)
         self.pill = Pill()
@@ -2071,6 +2200,11 @@ class MainWindow(QMainWindow):
         self.found_update = None
         self.installing = False
         self._closing = threading.Event()
+        self.content_refreshed.connect(lambda: self.treasures_page.refresh())
+        QTimer.singleShot(6000, self.refresh_content)
+        self.content_timer = QTimer(self)
+        self.content_timer.timeout.connect(self.refresh_content)
+        self.content_timer.start(2 * 3600 * 1000)
         self.replay_counted.connect(self._on_replay_counted)
 
         self.sender = Sender(
@@ -2301,7 +2435,8 @@ class MainWindow(QMainWindow):
             return
         if found.note:
             log.info("Replay %s: %s", found.file, found.note)
-        change = self.matches.apply_replay(record, found.chests, found.opened, found.broken, found.kinds)
+        change = self.matches.apply_replay(record, found.chests, found.opened, found.broken, found.kinds,
+                                           found.treasures, found.chest_times)
         log.info("Replay %s: %d chests (%d opened, %d broken); screen had %d",
                  found.file, found.chests, found.opened, found.broken, record["chests"])
         changed = self.stats.add(change) if change else 0
@@ -2314,6 +2449,8 @@ class MainWindow(QMainWindow):
         word = "chest" if found.chests == 1 else "chests"
         detail = f" ({found.opened} opened, {found.broken} broken)" if found.broken else ""
         self.tracker.log(f"Replay count: {found.chests} {word}{detail}", GOLD)
+        for treasure in found.treasures:
+            self.tracker.log(f"Treasure found: {treasure['name']}", GOLD)
         self._post_match(found.chests)
 
     def export_match_history(self) -> None:
@@ -2386,6 +2523,24 @@ class MainWindow(QMainWindow):
         self.tracker.stage.set_count(self.stats.total)
         self._show_stats()
 
+    def _page_shown(self, index: int) -> None:
+        page = self.stack.widget(index)
+        if page is self.report or page is self.treasures_page:
+            page.refresh()
+
+    def refresh_content(self) -> None:
+        """Look for newer treasure hunt data in the background."""
+        def work() -> None:
+            changed = False
+            try:
+                changed = self.content_store.refresh()
+            except Exception:
+                log.exception("Refreshing the treasure data failed")
+            if changed and not self._closing.is_set():
+                self.content_refreshed.emit()
+
+        threading.Thread(target=work, daemon=True, name="treasure-data").start()
+
     def open_report(self) -> None:
         """Save the report as a web page next to the app's data and open it."""
         data = report.build(self.matches.history, self.stats.total, self.stats.session)
@@ -2405,8 +2560,8 @@ class MainWindow(QMainWindow):
     def _show_stats(self) -> None:
         self.overlay.set_last(self.matches.last_chests(), self.stats.session, self.matches.session_matches)
         self.tracker.show_matches(self.matches)
-        if self.stack.currentWidget() is self.report:
-            self.report.refresh()
+        if self.stack.currentWidget() in (self.report, self.treasures_page):
+            self.stack.currentWidget().refresh()
         self.tracker.show_stats(self.stats)
         self.tray.setToolTip(f"Chest Tracker: {self.stats.total:,} chests")
 
@@ -2719,6 +2874,7 @@ class MainWindow(QMainWindow):
 
     def _shut_down(self) -> None:
         self._closing.set()
+        self.content_timer.stop()
         self.refresh_timer.stop()
         self.overlay_timer.stop()
         self.overlay.close()
