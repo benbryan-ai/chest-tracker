@@ -3,6 +3,12 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.3.1
+
+- **Count my past replays.** In **Edit total...**, a new button reads the replays Fortnite has saved on your PC and counts them. You pick the season start date (the Treasure Hunters season began 2026-11-01); older replays are ignored.
+- Matches the app never saw are added. Matches it counted from the screen are replaced by the replay's exact count, but only where a replay covers them: counts from before your oldest replay stay as they are.
+- You see how many matches will be added, how many corrected and what your total becomes, and confirm before anything changes. The whole thing can be undone from the list of changes, and running it again doesn't count anything twice.
+
 ## v1.3.0
 
 - **Edit your total.** The tracker page has an **Edit total...** button. Type what your total should be; the difference is saved in a list of changes, and any change can be undone. Today's and this session's counts aren't affected, and typed changes aren't sent to Discord.

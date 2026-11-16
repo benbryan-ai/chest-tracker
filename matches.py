@@ -25,7 +25,7 @@ def _clean(m: dict) -> dict:
     record = {"start": str(m["start"]), "end": str(m["end"]), "chests": int(m["chests"])}
     if m.get("source") in ("replay", "import"):
         record.update(source=m["source"], opened=max(0, int(m["opened"])), broken=max(0, int(m["broken"])))
-        if m["source"] == "import":
+        if m.get("batch"):
             record["batch"] = str(m["batch"])
     return record
 
@@ -118,6 +118,32 @@ class MatchLog:
         self.history = sorted(self.history + new, key=lambda m: m["start"])[-MAX_HISTORY:]
         self.save()
         return len(new)
+
+    def apply_backfill(self, batch: str, new: list[dict], replaced: list[dict]) -> dict:
+        """Add replay-counted matches and swap out the screen-counted ones they cover.
+
+        Returns what is needed to take it back: {"restore": [the records that were replaced]}.
+        """
+        old_records = [m for item in replaced for m in item["old"]]
+        keep = [m for m in self.history if not any(m is o or m == o for o in old_records)]
+        added = [dict(r, batch=batch) for r in new] + [dict(item["new"], batch=batch) for item in replaced]
+        self.history = sorted(keep + added, key=lambda m: m["start"])[-MAX_HISTORY:]
+        self.save()
+        return {"restore": old_records}
+
+    def restore(self, records: list[dict]) -> None:
+        """Put back matches that a backfill replaced."""
+        known = {(m["start"], m["end"]) for m in self.history}
+        back = []
+        for m in records:
+            try:
+                clean = _clean(m)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (clean["start"], clean["end"]) not in known:
+                back.append(clean)
+        self.history = sorted(self.history + back, key=lambda m: m["start"])[-MAX_HISTORY:]
+        self.save()
 
     def remove_batch(self, batch: str) -> int:
         """Take back an import: removes the matches it added."""

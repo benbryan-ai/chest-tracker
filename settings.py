@@ -32,6 +32,7 @@ DEFAULTS = {
     "party_code": "",
     "update_mode": "notify",
     "replay_count": True,
+    "season_start": "2026-11-01",
     "replay_folder": "",
     "bot_token": "",
     "channel_id": "",

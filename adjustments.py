@@ -7,6 +7,7 @@ from pathlib import Path
 from settings import _write_json, read_json
 
 MAX_ENTRIES = 500
+KINDS = ("hand", "import", "replay")
 
 
 class Adjustments:
@@ -20,22 +21,28 @@ class Adjustments:
             for e in saved.get("entries", []):
                 entry = {
                     "id": str(e["id"]), "chests": int(e["chests"]), "when": str(e["when"]),
-                    "kind": "import" if e.get("kind") == "import" else "hand", "note": str(e.get("note", "")),
+                    "kind": e["kind"] if e.get("kind") in KINDS else "hand", "note": str(e.get("note", "")),
                 }
-                if entry["chests"] != 0:
+                if isinstance(e.get("undo"), dict):
+                    entry["undo"] = e["undo"]
+                if entry["chests"] != 0 or entry.get("undo"):
                     self.entries.append(entry)
         except (KeyError, TypeError, ValueError, AttributeError):
             self.entries = []
         self.entries = self.entries[-MAX_ENTRIES:]
 
-    def add(self, chests: int, kind: str, note: str, now: datetime | None = None) -> dict | None:
-        if chests == 0:
+    def add(self, chests: int, kind: str, note: str, now: datetime | None = None, undo: dict | None = None,
+            entry_id: str | None = None) -> dict | None:
+        """`undo` is whatever is needed to take the change back besides the chest number."""
+        if chests == 0 and not undo:
             return None
         entry = {
-            "id": uuid.uuid4().hex[:12], "chests": int(chests),
+            "id": entry_id or uuid.uuid4().hex[:12], "chests": int(chests),
             "when": (now or datetime.now()).isoformat(timespec="seconds"),
-            "kind": "import" if kind == "import" else "hand", "note": note,
+            "kind": kind if kind in KINDS else "hand", "note": note,
         }
+        if undo:
+            entry["undo"] = undo
         self.entries = (self.entries + [entry])[-MAX_ENTRIES:]
         self.save()
         return entry

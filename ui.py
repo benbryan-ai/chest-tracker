@@ -5,6 +5,7 @@ import logging
 import sqlite3
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from matches import MatchLog
 from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
 from protocol import MAX_NAME_LENGTH, name_problem, normalize_party, party_problem, is_webhook_url
 from recap import RecapDetector
+import backfill
 import importer
 import replays
 import updater
@@ -382,13 +384,16 @@ class SelectionView(QWidget):
 
 
 class TotalDialog(QDialog):
+    scanned = Signal(object)
+    scan_progress = Signal(int, int)
+
     """Change the lifetime total by hand, undo earlier changes, or bring numbers in from another tracker."""
 
     def __init__(self, window: "MainWindow"):
         super().__init__(window)
         self.window_ = window
         self.setWindowTitle("Your total")
-        self.setMinimumSize(520, 520)
+        self.setMinimumSize(520, 420)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 20, 24, 20)
         outer.setSpacing(10)
@@ -414,10 +419,29 @@ class TotalDialog(QDialog):
         outer.addWidget(label("Changes you made", "subheading"))
         self.history = QListWidget()
         self.history.setObjectName("activityList")
-        outer.addWidget(self.history, 1)
+        self.history.setMaximumHeight(120)
+        outer.addWidget(self.history)
         self.undo = QPushButton("Undo selected change")
         self.undo.clicked.connect(self.undo_selected)
         outer.addWidget(self.undo)
+        outer.addWidget(label("Count my past replays", "subheading"))
+        outer.addWidget(label(
+            "Reads the replays Fortnite has saved on this PC, from the season start date on. Matches the app "
+            "never saw are added, and matches it counted from the screen are corrected. Counts from before your "
+            "oldest replay stay as they are. You'll see the result and confirm before anything changes.",
+            "muted", wrap=True,
+        ))
+        replay_row = QHBoxLayout()
+        self.season_start = QLineEdit(window.settings["season_start"])
+        self.season_start.setPlaceholderText("Season start, YYYY-MM-DD")
+        self.season_start.setToolTip("Replays from before this date are ignored.")
+        replay_row.addWidget(self.season_start, 1)
+        self.scan_button = QPushButton("Count my past replays")
+        self.scan_button.clicked.connect(self.start_scan)
+        replay_row.addWidget(self.scan_button)
+        outer.addLayout(replay_row)
+        self.scanned.connect(self._scan_done)
+        self.scan_progress.connect(lambda done, total: self.status.setText(f"Reading replays... {done} of {total}"))
         outer.addWidget(label("Bring in numbers from another tracker", "subheading"))
         self.offers = importer.find_offers()
         self.offer_box = QComboBox()
@@ -469,6 +493,62 @@ class TotalDialog(QDialog):
             return
         self.window_.undo_adjustment(entry_id)
         self.status.setText("Undone.")
+        self.refresh()
+
+    def start_scan(self) -> None:
+        try:
+            since = datetime.fromisoformat(self.season_start.text().strip())
+        except ValueError:
+            self.status.setText("Type the season start as a date like 2026-11-01.")
+            return
+        scanner = replays.find_scanner()
+        if scanner is None:
+            self.status.setText("The replay reader isn't part of this build, so past replays can't be counted.")
+            return
+        self.window_.settings.set(season_start=since.date().isoformat())
+        folder = Path(self.window_.settings["replay_folder"] or replays.default_replay_folder())
+        if not folder.is_dir():
+            self.status.setText(f"No replay folder found at {folder}. Is Fortnite's Record Replays setting on?")
+            return
+        self.scan_button.setEnabled(False)
+        self.status.setText("Reading replays...")
+
+        def work() -> None:
+            found = []
+            try:
+                found = backfill.scan_folder(scanner, folder, since, self.scan_progress.emit)
+            except Exception:
+                log.exception("Reading past replays failed")
+            self.scanned.emit((since, found))
+
+        threading.Thread(target=work, daemon=True, name="replay-backfill").start()
+
+    def _scan_done(self, result) -> None:
+        since, found = result
+        self.scan_button.setEnabled(True)
+        plan = backfill.make_plan(found, self.window_.matches.history, since)
+        if plan.replays_in_season == 0:
+            self.status.setText("No readable replays since that date. Finished matches only; one still recording is skipped.")
+            return
+        if plan.nothing_to_do:
+            self.status.setText(f"{plan.replays_in_season} replays checked. Everything is already counted from them.")
+            return
+        total = self.window_.stats.total
+        answer = QMessageBox.question(
+            self, "Count past replays",
+            f"Found {plan.replays_in_season} replays since {since.date().isoformat()}.\n\n"
+            f"New matches added: {len(plan.new)}\n"
+            f"Matches corrected from the replay: {len(plan.replaced)}\n"
+            f"Already counted from the replay: {plan.already}\n\n"
+            f"Your total changes by {plan.total_change:+,}, from {total:,} to {max(0, total + plan.total_change):,}.\n"
+            "Matches without a replay stay as they are. You can undo this afterwards.\n\nApply it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.status.setText("Nothing changed.")
+            return
+        change = self.window_.apply_backfill(plan)
+        self.status.setText(f"Done: total changed by {change:+,}.")
         self.refresh()
 
     def import_selected(self) -> None:
@@ -2061,8 +2141,10 @@ class MainWindow(QMainWindow):
         if entry is None:
             return
         self.stats.adjust_total(-entry["chests"])
-        if entry["kind"] == "import":
+        if entry["kind"] in ("import", "replay"):
             self.matches.remove_batch(entry["id"])
+        if entry["kind"] == "replay":
+            self.matches.restore(entry.get("undo", {}).get("restore", []))
         log.info("Undid a total change of %+d", entry["chests"])
         self._refresh_total()
 
@@ -2076,6 +2158,18 @@ class MainWindow(QMainWindow):
         log.info("Imported %d chests and %d matches from %s", offer.chests, added, offer.source)
         self._refresh_total()
         return added
+
+    def apply_backfill(self, plan) -> int:
+        """Apply a plan from counting past replays. Returns how much the total changed."""
+        batch = uuid.uuid4().hex[:12]
+        undo = self.matches.apply_backfill(batch, plan.new, plan.replaced)
+        changed = self.stats.adjust_total(plan.total_change)
+        note = (f"Counted past replays since {plan.since.date().isoformat()}: "
+                f"{len(plan.new)} added, {len(plan.replaced)} corrected")
+        self.adjustments.add(changed, "replay", note, undo=undo, entry_id=batch)
+        log.info("%s; total changed by %+d", note, changed)
+        self._refresh_total()
+        return changed
 
     def _refresh_total(self) -> None:
         self.overlay.set_count(self.stats.total)

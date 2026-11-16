@@ -804,3 +804,53 @@ def test_the_extra_overlay_row_can_be_hidden(window):
     window.set_overlay_last(False)
     assert window.overlay.height() == 76
     assert window.settings["overlay_show_last"] is False
+
+
+# --- counting past replays ---
+
+def past_replay(start, chests=10):
+    from datetime import timedelta
+    return replays.ReplayCount("r", chests, chests, 0, start, start + timedelta(minutes=15))
+
+
+def test_counting_past_replays_corrects_adds_and_can_be_undone(window, monkeypatch):
+    from datetime import datetime as dt
+    window.settings.set(season_start="2026-11-01")
+    window.stats.adjust_total(100)
+    window.matches.history = [{"start": "2026-11-05T20:03:00", "end": "2026-11-05T20:13:00", "chests": 6},
+                              {"start": "2026-10-01T20:00:00", "end": "2026-10-01T20:10:00", "chests": 9}]
+    window.matches.save()
+    since = dt(2026, 11, 1)
+    found = [past_replay(dt(2026, 11, 5, 20, 0), 10), past_replay(dt(2026, 11, 7, 20, 0), 8)]
+    plan = backfill_plan = ui.backfill.make_plan(found, window.matches.history, since)
+    assert plan.total_change == 4 + 8
+    assert window.apply_backfill(plan) == 12
+    assert window.stats.total == 112
+    assert [m["chests"] for m in window.matches.history] == [9, 10, 8]  # October untouched
+    entry = window.adjustments.entries[-1]
+    assert entry["kind"] == "replay"
+    window.undo_adjustment(entry["id"])
+    assert window.stats.total == 100
+    assert [m["chests"] for m in window.matches.history] == [9, 6]
+
+
+def test_the_scan_dialog_asks_before_changing_anything(window, monkeypatch):
+    from datetime import datetime as dt
+    dialog = ui.TotalDialog(window)
+    monkeypatch.setattr(ui.QMessageBox, "question", lambda *a, **k: ui.QMessageBox.StandardButton.No)
+    dialog._scan_done((dt(2026, 11, 1), [past_replay(dt(2026, 11, 5, 20))]))
+    assert window.stats.total == 0 and window.matches.history == []
+    monkeypatch.setattr(ui.QMessageBox, "question", lambda *a, **k: ui.QMessageBox.StandardButton.Yes)
+    dialog._scan_done((dt(2026, 11, 1), [past_replay(dt(2026, 11, 5, 20))]))
+    assert window.stats.total == 10 and len(window.matches.history) == 1
+
+
+def test_the_scan_dialog_rejects_a_bad_date_and_a_missing_reader(window, monkeypatch):
+    dialog = ui.TotalDialog(window)
+    dialog.season_start.setText("soon")
+    dialog.start_scan()
+    assert "date" in dialog.status.text()
+    dialog.season_start.setText("2026-11-01")
+    monkeypatch.setattr(replays, "find_scanner", lambda: None)
+    dialog.start_scan()
+    assert "isn't part of this build" in dialog.status.text()
