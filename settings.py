@@ -30,6 +30,8 @@ DEFAULTS = {
     "match_post": True,
     "party_code": "",
     "update_mode": "notify",
+    "replay_count": True,
+    "replay_folder": "",
     "bot_token": "",
     "channel_id": "",
     "match_channel_id": "",

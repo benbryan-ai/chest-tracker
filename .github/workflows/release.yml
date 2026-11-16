@@ -31,7 +31,12 @@ jobs:
       - run: python -m pytest -q
         env:
           QT_QPA_PLATFORM: offscreen
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
       - run: powershell -ExecutionPolicy Bypass -File build.ps1
+        env:
+          REQUIRE_SCANNER: "1"
       - name: Publish the release
         shell: bash
         env:

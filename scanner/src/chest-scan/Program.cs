@@ -7,6 +7,8 @@ using ChestCounter;
 // With no path it reads Fortnite's own replay folder. The Chest Tracker app runs this with --json.
 const string Usage = "usage: chest-scan [--json] [--timeout SECONDS] [replay or folder]...";
 
+L.Set("en");
+
 var paths = new List<string>();
 var json = false;
 var timeoutSeconds = 180;

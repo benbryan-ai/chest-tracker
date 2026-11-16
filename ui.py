@@ -31,6 +31,7 @@ from matches import MatchLog
 from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
 from protocol import MAX_NAME_LENGTH, name_problem, normalize_party, party_problem, is_webhook_url
 from recap import RecapDetector
+import replays
 import updater
 from version import VERSION
 from settings import Settings, Stats
@@ -916,6 +917,18 @@ class SetupPage(QWidget):
             layout, "Volume", 100 * MIN_VOLUME, 100 * MAX_VOLUME,
             100 * clamp_volume(settings["chime_volume"]), "{}%", self._save_chime_volume,
         )
+        layout.addSpacing(12)
+        layout.addWidget(label("Replay counting", "subheading"))
+        layout.addWidget(label(
+            "After each match the app reads Fortnite's replay file to get the exact chest count, "
+            "including chests you broke instead of opening. If the replay can't be read, the count "
+            "from the screen is kept. Needs Fortnite's \"Record Replays\" setting turned on.",
+            "muted", wrap=True,
+        ))
+        self.replay_count = QCheckBox("Use the replay to count chests after each match")
+        self.replay_count.setChecked(bool(settings["replay_count"]))
+        self.replay_count.toggled.connect(lambda on: self.window_.settings.set(replay_count=on))
+        layout.addWidget(self.replay_count)
         layout.addSpacing(10)
         layout.addWidget(label("Updates", "small"))
         self.version_label = label(f"You have version {VERSION}.", "muted")
@@ -1530,6 +1543,7 @@ class MainWindow(QMainWindow):
     update_progress = Signal(float)
     update_ready = Signal(object, object)  # the release and its downloaded file
     update_failed = Signal(str)
+    replay_counted = Signal(object, object)  # the saved match, and its ReplayCount (None: not found)
 
     def __init__(self, folder: Path, icon: QIcon):
         super().__init__()
@@ -1639,6 +1653,8 @@ class MainWindow(QMainWindow):
         self.update_failed.connect(self._on_update_failed)
         self.found_update = None
         self.installing = False
+        self._closing = threading.Event()
+        self.replay_counted.connect(self._on_replay_counted)
 
         self.sender = Sender(
             self.settings["webhook_url"], self.settings["player_name"],
@@ -1830,12 +1846,58 @@ class MainWindow(QMainWindow):
                 self.tracker.log("This match had no chests, so nothing was saved", ASH)
             return
         log.info("Match finished (%s): %d chests", how, record["chests"])
+        word = "chest" if record["chests"] == 1 else "chests"
+        self.tracker.log(f"Match finished: {record['chests']} {word}", GOLD)
+        scanner = replays.find_scanner() if self.settings["replay_count"] else None
+        if scanner is None:
+            self._post_match(record["chests"])
+            return
+        # The post waits for the replay's exact count (or for the search to give up).
+        self.tracker.log("Checking the replay for the exact count...", ASH)
+        folder = Path(self.settings["replay_folder"] or replays.default_replay_folder())
+        first_chest = datetime.fromisoformat(record["start"])
+
+        def work() -> None:
+            found = None
+            try:
+                found = replays.count_match(first_chest, folder, scanner, stop=self._closing.is_set)
+            except Exception:
+                log.exception("Reading the replay failed")
+            if not self._closing.is_set():
+                self.replay_counted.emit(record, found)
+
+        threading.Thread(target=work, daemon=True, name="replay-count").start()
+
+    def _post_match(self, chests: int) -> None:
+        if chests < 1:
+            return
         if self.settings["match_post"] and self.settings["match_webhook_url"] and self.settings["player_name"]:
             code = self.settings["party_code"]
             # A hand-edited code the bot couldn't read would turn the post into a plain line.
-            self.poster.add(record["chests"], "" if party_problem(code) else normalize_party(code))
-        word = "chest" if record["chests"] == 1 else "chests"
-        self.tracker.log(f"Match finished: {record['chests']} {word}", GOLD)
+            self.poster.add(chests, "" if party_problem(code) else normalize_party(code))
+
+    def _on_replay_counted(self, record: dict, found) -> None:
+        if found is None:
+            log.info("No readable replay for the match at %s; keeping the screen count", record["start"])
+            self.tracker.log("Couldn't read the replay, so the screen count stands", ASH)
+            self._post_match(record["chests"])
+            return
+        if found.note:
+            log.info("Replay %s: %s", found.file, found.note)
+        change = self.matches.apply_replay(record, found.chests, found.opened, found.broken)
+        log.info("Replay %s: %d chests (%d opened, %d broken); screen had %d",
+                 found.file, found.chests, found.opened, found.broken, record["chests"])
+        changed = self.stats.add(change) if change else 0
+        if changed:
+            self.overlay.set_count(self.stats.total)
+            if self.settings["webhook_url"] and self.settings["player_name"]:
+                self.sender.add(changed)
+            self.tracker.stage.set_count(self.stats.total)
+        self._show_stats()
+        word = "chest" if found.chests == 1 else "chests"
+        detail = f" ({found.opened} opened, {found.broken} broken)" if found.broken else ""
+        self.tracker.log(f"Replay count: {found.chests} {word}{detail}", GOLD)
+        self._post_match(found.chests)
 
     def export_match_history(self) -> None:
         name, _ = QFileDialog.getSaveFileName(
@@ -2167,6 +2229,7 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
     def _shut_down(self) -> None:
+        self._closing.set()
         self.refresh_timer.stop()
         self.overlay_timer.stop()
         self.overlay.close()

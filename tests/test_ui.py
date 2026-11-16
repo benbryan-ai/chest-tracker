@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+import replays
 import ui
+from datetime import datetime
 
 
 @pytest.fixture(scope="module")
@@ -486,7 +488,7 @@ def test_export_writes_the_history(window, monkeypatch, tmp_path):
     target = tmp_path / "out.csv"
     monkeypatch.setattr(ui.QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
     window.export_match_history()
-    assert target.read_text(encoding="utf-8-sig").splitlines()[1].endswith(",1")
+    assert target.read_text(encoding="utf-8-sig").splitlines()[1].endswith(",1,,,screen")
 
 
 def share_matches(window, party=""):
@@ -672,3 +674,58 @@ def test_a_swap_that_fails_keeps_the_app_running(window, monkeypatch, tmp_path):
     window.found_update = a_release()
     window._on_update_ready(a_release(), tmp_path / "missing.new")
     assert exe.read_bytes() == b"old" and window.banner_install.text() == "Try again"
+
+
+# --- replay counting ---
+
+def finished_match(window, chests=2):
+    share_to_discord(window)
+    share_matches(window, "SQD")
+    for _ in range(chests):
+        window.record_chest(1, "detected")
+    return window.matches.finish()
+
+
+def test_a_replay_count_corrects_the_match_total_and_posts_it(window):
+    record = finished_match(window)
+    window.poster.queue.clear()
+    window.sender.wake.clear()
+    total_before = window.stats.total
+    window._on_replay_counted(record, replays.ReplayCount("r", 5, 3, 2, datetime.now(), datetime.now()))
+    assert window.matches.history[-1]["chests"] == 5
+    assert window.stats.total == total_before + 3
+    assert window.poster.queue == [{"chests": 5, "party": "SQD"}]
+
+
+def test_a_missing_replay_keeps_the_screen_count_and_still_posts(window):
+    record = finished_match(window)
+    window.poster.queue.clear()
+    window._on_replay_counted(record, None)
+    assert window.matches.history[-1]["chests"] == 2
+    assert window.poster.queue == [{"chests": 2, "party": "SQD"}]
+
+
+def test_with_a_scanner_the_post_waits_for_the_replay(window, monkeypatch, tmp_path):
+    exe = tmp_path / "scan"
+    exe.write_bytes(b"x")
+    monkeypatch.setattr(replays, "find_scanner", lambda: exe)
+    monkeypatch.setattr(replays, "count_match", lambda *a, **k: None)
+    share_to_discord(window)
+    share_matches(window, "SQD")
+    window.record_chest(1, "detected")
+    window.poster.queue.clear()
+    window.finish_match("key")
+    assert window.poster.queue == []  # not yet: the replay is being read
+
+
+def test_replay_counting_can_be_turned_off(window, monkeypatch, tmp_path):
+    exe = tmp_path / "scan"
+    exe.write_bytes(b"x")
+    monkeypatch.setattr(replays, "find_scanner", lambda: exe)
+    share_to_discord(window)
+    share_matches(window, "SQD")
+    window.setup.replay_count.setChecked(False)
+    window.record_chest(1, "detected")
+    window.poster.queue.clear()
+    window.finish_match("key")
+    assert window.poster.queue == [{"chests": 1, "party": "SQD"}]

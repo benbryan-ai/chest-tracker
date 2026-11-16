@@ -3,6 +3,14 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.2.0
+
+- **Exact counts from Fortnite's replay.** After each match the app reads Fortnite's replay file and uses its chest count, which also includes chests you broke instead of opened. The screen count is used if the replay can't be read, or if you turn this off in Setup ("Replay counting").
+- When the replay's count differs from the screen count, your total, today's count and the match history are corrected, and the match report goes to Discord with the corrected number. The log shows how many were opened and how many broken.
+- Fortnite's **Record Replays** setting must be on. Replays can only be read once the match is over, so the count may take up to a few minutes to appear.
+- Exported match history now has opened, broken and "counted from" columns.
+- Replay reading uses code from ChestCounter by LED-N and FortniteReplayDecompressor (both MIT); see `scanner/THIRD_PARTY_NOTICES.md`.
+
 ## v1.1.1
 
 - Updates: the app can now check GitHub for a new version. In Setup, choose to be told about new versions (the default), have them installed automatically, or turn checking off. **Check for updates** checks right away.

@@ -228,7 +228,7 @@ The **Release** workflow checks the tag matches `version.py` and that the notes 
 
 ## Replay scanner (test build)
 
-The `scanner/` folder holds `chest-scan`, an experimental replay counter. See `scanner/README.md`.
+After each match the app reads Fortnite's replay file with the bundled `chest-scan` program and uses its exact chest count (including broken chests). If the replay can't be read, the screen count is kept. Turn it off in Setup under "Replay counting". The program's source is in `scanner/` (see `scanner/README.md`); building it needs the .NET 10 SDK, which `build.ps1` uses if present.
 
 ## License
 

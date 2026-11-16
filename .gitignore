@@ -22,3 +22,4 @@ promo/
 # Scanner build output
 scanner/**/bin/
 scanner/**/obj/
+scanner-out/

@@ -20,6 +20,14 @@ class MatchStats:
     best: int
 
 
+def _clean(m: dict) -> dict:
+    """A saved match, keeping only the fields we know. The replay fields are optional."""
+    record = {"start": str(m["start"]), "end": str(m["end"]), "chests": int(m["chests"])}
+    if m.get("source") == "replay":
+        record.update(source="replay", opened=max(0, int(m["opened"])), broken=max(0, int(m["broken"])))
+    return record
+
+
 class MatchLog:
     """The match in progress, plus every finished match that had at least one chest.
 
@@ -34,11 +42,7 @@ class MatchLog:
         saved = read_json(path) or {}
         try:
             history = saved.get("history", [])
-            self.history = [
-                {"start": str(m["start"]), "end": str(m["end"]), "chests": int(m["chests"])}
-                for m in history
-                if int(m["chests"]) >= 1
-            ][-MAX_HISTORY:]
+            self.history = [_clean(m) for m in history if int(m["chests"]) >= 1][-MAX_HISTORY:]
             self.current = max(0, int(saved.get("current", 0)))
             if saved.get("started"):
                 self.started = datetime.fromisoformat(str(saved["started"]))
@@ -74,6 +78,24 @@ class MatchLog:
         self.save()
         return record
 
+    def apply_replay(self, record: dict, chests: int, opened: int, broken: int) -> int:
+        """Replace a finished match's screen count with the replay's. Returns how many chests it changed by.
+
+        `record` is what finish() returned. Returns 0 (and changes nothing) if it is no longer in the history.
+        """
+        for index in range(len(self.history) - 1, -1, -1):
+            saved = self.history[index]
+            if saved["start"] == record["start"] and saved["end"] == record["end"]:
+                change = chests - saved["chests"]
+                updated = dict(saved, chests=chests, opened=opened, broken=broken, source="replay")
+                if chests >= 1:
+                    self.history[index] = updated
+                else:
+                    del self.history[index]  # a replay with no chests: nothing happened worth keeping
+                self.save()
+                return change
+        return 0
+
     def stats(self) -> MatchStats | None:
         counts = [m["chests"] for m in self.history]
         if not counts:
@@ -91,7 +113,10 @@ class MatchLog:
         """Write the history as a spreadsheet file. Returns how many matches were written."""
         with open(destination, "w", newline="", encoding="utf-8-sig") as out:
             writer = csv.writer(out)
-            writer.writerow(["match", "start", "end", "chests"])
+            writer.writerow(["match", "start", "end", "chests", "opened", "broken", "counted from"])
             for number, m in enumerate(self.history, 1):
-                writer.writerow([number, m["start"], m["end"], m["chests"]])
+                writer.writerow([
+                    number, m["start"], m["end"], m["chests"], m.get("opened", ""), m.get("broken", ""),
+                    "replay" if m.get("source") == "replay" else "screen",
+                ])
         return len(self.history)

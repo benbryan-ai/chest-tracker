@@ -102,7 +102,7 @@ def test_export_writes_a_csv_that_spreadsheets_open(tmp_path):
     out = tmp_path / "out.csv"
     assert log.export_csv(out) == 2
     rows = list(csv.reader(out.open(encoding="utf-8-sig")))
-    assert rows[0] == ["match", "start", "end", "chests"]
+    assert rows[0] == ["match", "start", "end", "chests", "opened", "broken", "counted from"]
     assert [r[3] for r in rows[1:]] == ["3", "5"]
 
 
@@ -144,3 +144,28 @@ def test_one_button_alone_is_not_the_end_screen():
     detector, screen = fake_recap_screen()
     screen[480:520, 1400:1720] = 70  # wipe out RETURN TO LOBBY
     assert not detector.is_recap(screen)
+
+
+def test_a_replay_count_replaces_the_screen_count(tmp_path):
+    log = MatchLog(tmp_path / "m.json")
+    for _ in range(3):
+        log.add(1)
+    record = log.finish()
+    assert log.apply_replay(record, 5, 3, 2) == 2
+    assert log.history[-1]["chests"] == 5
+    assert (log.history[-1]["opened"], log.history[-1]["broken"], log.history[-1]["source"]) == (3, 2, "replay")
+    again = MatchLog(tmp_path / "m.json")  # and it survives a restart
+    assert again.history[-1]["broken"] == 2
+
+
+def test_a_replay_with_no_chests_removes_the_match(tmp_path):
+    log = MatchLog(tmp_path / "m.json")
+    log.add(1)
+    record = log.finish()
+    assert log.apply_replay(record, 0, 0, 0) == -1
+    assert log.history == []
+
+
+def test_a_replay_count_for_an_unknown_match_changes_nothing(tmp_path):
+    log = MatchLog(tmp_path / "m.json")
+    assert log.apply_replay({"start": "x", "end": "y", "chests": 2}, 9, 9, 0) == 0
