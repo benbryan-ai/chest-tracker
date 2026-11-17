@@ -52,3 +52,11 @@ def test_ticking_a_prize_on_the_page(window):
     box = page.week.itemAt(0).widget()
     box.setChecked(True)
     assert len(window.treasure_marks.found) == 1
+
+
+def test_an_ampersand_in_a_prize_name_is_shown_as_is(window):
+    page = window.treasures_page
+    page.refresh()
+    kinds = [page.week.itemAt(i).widget().text() for i in range(page.week.count())]
+    assert not any("_" in t for t in kinds)
+    assert any("Vehicle && decal" in t for t in kinds) or not any("decal" in t for t in kinds)

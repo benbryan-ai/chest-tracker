@@ -19,7 +19,7 @@
 
 Chest Tracker counts the Fortnite chests you open and can keep a shared leaderboard in Discord. It also works in local-only mode: counts stay on this PC and no Discord setup is needed.
 
-This fork is based on [Xxoris190/chest-tracker](https://github.com/Xxoris190/chest-tracker). The original project and its contributors retain their copyright; this fork keeps the original MIT license and notices.
+Chest Tracker began from [Xxoris190/chest-tracker](https://github.com/Xxoris190/chest-tracker) and has since grown a lot. The original author keeps their copyright and the MIT license notice is kept (see [License](#license)).
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="The app's chest lifting its lid during a search, slamming shut on a cancel, then bursting with coins when a chest counts" width="85%">
@@ -38,6 +38,10 @@ This fork is based on [Xxoris190/chest-tracker](https://github.com/Xxoris190/che
 - **Works with your binds.** Use any key, a mouse button, the scroll wheel, or an Xbox-style controller button to interact.
 - **Finds your screen.** It follows Fortnite to whichever monitor it's on.
 - **Pause key.** Press **F9** in Fortnite to stop counting (say, in a party lobby or when you are messing about) and press it again to resume. The overlay shows PAUSED.
+- **Exact counts from Fortnite's replay.** When a match ends, the app reads the replay file and uses its exact count, including chests you broke rather than opened, with how many were opened and broken and the chest types. If the replay can't be read, the screen count is kept.
+- **Match history and reports.** A **Report** tab shows days, weeks and months as charts and lists; click a match for its details. **Edit total...** lets you correct your total (and undo it), import from ChestCounter or the older Chest Tracker, and **Count my past replays** to fill in older matches from the replays Fortnite has kept.
+- **Treasure Hunters hunt.** The **Treasures** tab shows the week's golden-chest prizes, what you've found, your chances, Treasure Hours, and your finds. Finds are read from replays, and you can tick off any the replays missed. Past weeks stay available. The hunt data comes from [ChestCounter's](https://github.com/LED-N/Fortnite-ChestCounter) content file and updates without a new release.
+- **Backups.** A daily automatic backup (last 7 kept) plus **Back up now...** and **Restore from a backup...** in **Settings**.
 - **Optional chime.** A short sound when a chest is counted, for when you miss the animation. Off by default, with its own volume.
 - **Optional in-game overlay.** Show the chest count over Fortnite, drag it clear of your HUD in Setup, and mouse input passes through while playing. You can change its size and opacity in Setup. The overlay is excluded from the app's own screen capture, so it can't be mistaken for part of the game.
 
@@ -61,6 +65,11 @@ Closing the window keeps it counting from the system tray. To exit, right-click 
   <img src="docs/images/group.png" alt="The Group page with a leaderboard of four sample players" width="49%">
 </p>
 
+<p align="center">
+  <img src="docs/images/report.png" alt="The Report tab with chests per day and the latest matches, using sample data" width="49%">
+  <img src="docs/images/treasures.png" alt="The Treasures tab with a week's prizes ticked off and your chances, using sample data" width="49%">
+</p>
+
 ## How a chest gets counted
 
 Fortnite has no official way to report chest opens, so the app works it out from the screen. A chest counts about 3 seconds after you search it, once all of these are true:
@@ -81,7 +90,21 @@ The tracker counts chests per match as well as in total. **This match** appears 
 
 A match ends when the app sees Fortnite's end-of-match screen (the one with **Return to lobby** and **Play again**). That screen only appears once your whole team is out or you leave, so spectating doesn't end a match. If the app misses it, press **F8** in Fortnite or click **New match**. F8 can be changed in Setup, and it must differ from your other keys.
 
-The Tracker page shows the average, median and best chests per match. Matches with no chests are never saved, so they don't pull the average down. **Export history** saves the matches as a CSV file for a spreadsheet. A match still open when the app starts is carried on if it began within two hours, and closed otherwise. Only matches from this version onward are counted.
+The Tracker page shows the average, median and best chests per match. Matches with no chests are never saved, so they don't pull the average down. **Export history** saves the matches as a CSV file for a spreadsheet. A match still open when the app starts is carried on if it began within two hours, and closed otherwise.
+
+### Replay counting
+
+The screen can't see chests that are broken rather than opened, but Fortnite's replay records every chest you searched. After each match the app waits for the replay (it can take a minute or two to finish writing), reads it with the bundled `chest-scan` program, and uses that count instead of the screen count. This needs **Record Replays** turned on in Fortnite's settings; if it's off, or the replay can't be read, the screen count stands. If that happens for 3 matches in a row, a banner says why. You can turn this off under **Replay counting** in **Setup**, and point the app at a different replay folder in **Settings**.
+
+**Count my past replays** (in **Edit total...**) reads the replays Fortnite still has and fills in your history from the start of the season (editable). Counts from before the replays are kept, and matches covered by a replay get the replay's count.
+
+### Treasures
+
+The **Treasures** tab covers the Treasure Hunters hunt: the week's prizes (choose any week that has started), your chances, Treasure Hours, and your latest finds. Prizes found in a replay are ticked for you; tick any others by hand. If a treasure is found in a replay, a line goes to your match channel in Discord (you can turn this off in Settings), and during the hunt the overlay can show a Treasure Hour countdown.
+
+### Settings, backups and messages
+
+The **Settings** tab holds the 12 or 24 hour clock, minimize to tray, start with Windows (starts minimized), the overlay options, replay folder, and backups. Backups hold your total, match history, list of changes and ticked treasures; Discord settings are never included. The app can also show a short plain-text message from the developer (for example "a Fortnite update broke replay reading"), which you can dismiss or turn off in **Settings**. Those messages come from [`notices.json`](NOTICES.md) in this repository.
 
 ### Updates
 
@@ -90,7 +113,7 @@ In **Setup**, under **Updates**, choose what the app does about new versions:
 - **Install new versions automatically**: installs when no match with chests is open and Fortnite isn't the active window, then restarts.
 - **Don't check for updates**: nothing is checked.
 
-**Check for updates** checks right away. The app asks GitHub for the latest release, so it only works if this project's releases are public. A download is only installed if it matches the checksum GitHub lists for it, and the old version is put back if the install fails. The exe isn't code-signed, so Windows may show its "protected your PC" screen. If you run the app from source, the update button opens the releases page instead.
+**Check for updates** checks right away. The app asks GitHub for the latest release of this project (`benbryan-ai/chest-tracker`), so it only works while the releases are public. It can jump several versions at once. A download is only installed if it matches the checksum GitHub lists for it, and the old version is put back if the install fails. The exe isn't code-signed, so Windows may show its "protected your PC" screen. If you run the app from source, the update button opens the releases page instead.
 
 ### Known limits
 
@@ -135,9 +158,9 @@ A player who opened no chests that match has no line, so they aren't in the repo
 
 ## Privacy and anti-cheat
 
-**What the app does:** it takes screenshots while Fortnite is the active window and reads which keys and scroll input you use. It doesn't touch Fortnite's memory or files, and it doesn't press anything for you.
+**What the app does:** it takes screenshots while Fortnite is the active window and reads which keys and scroll input you use. It doesn't touch Fortnite's memory, and it doesn't press anything for you. After a match it only reads (never changes) the replay file Fortnite saved, on your PC, using the bundled `chest-scan` program.
 
-**What it sends:** The app asks GitHub for the latest release now and then (unless you turn update checks off); nothing about you is sent. Discord is optional; if configured, the app sends your player name and chest count to your webhook, and, if you set the match reports webhook, your chests per match and party code. If you use Fortnite Stats, the app sends the player name and Fortnite-API key to Fortnite-API.com over HTTPS when you select **Refresh stats**. The key and most recent result are stored in the local settings file; the key is not sent to Discord. Screenshots stay in memory and are thrown away. The only image saved for detection is the small prompt picture you select, on your own PC.
+**What it sends:** The app asks GitHub for the latest release, for developer messages, and for the treasure hunt data now and then (it downloads these; nothing about you is sent). Update checks can be turned off. Discord is optional; if configured, the app sends your player name and chest count to your webhook, and, if you set the match reports webhook, your chests per match, party code and any treasures found. If you use Fortnite Stats, the app sends the player name and Fortnite-API key to Fortnite-API.com over HTTPS when you select **Refresh stats**. The key and most recent result are stored in the local settings file; the key is not sent to Discord. Screenshots stay in memory and are thrown away. The only image saved for detection is the small prompt picture you select, on your own PC.
 
 **Where your data lives:** your settings, API key, webhook URL and bot token are in `%APPDATA%\ChestTracker`, not in the `.exe`.
 
@@ -174,7 +197,7 @@ If a box was counted, or a chest was skipped ("Not counted: looks like an ammo o
 
 ## Build from source
 
-You need Windows and Python 3.12.
+You need Windows and Python 3.12. To build the replay reader as well you need the [.NET 10 SDK](https://dotnet.microsoft.com/download); without it the app still builds, but without replay counting (the release build requires it).
 
 ```bash
 python -m venv .venv-app
@@ -214,8 +237,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `updater.py`, `version.py` | Checks GitHub for new releases and installs them; the version number |
 | `reports.py` | The group game report: waits for teammates and ranks them |
 | `matches.py`, `recap.py` | Chests per match and its history, and the end-of-match screen check |
+| `replays.py`, `scanner/` | Reads a finished match's replay with the bundled `chest-scan` program (.NET) |
+| `backfill.py`, `importer.py`, `adjustments.py` | Counting past replays, importing from other trackers, and the editable list of total changes |
+| `report.py`, `timefmt.py` | The Report tab's numbers and the clock format |
+| `content.py`, `treasures.py`, `marks.py` | The treasure hunt data, chances and finds, and hand-ticked prizes |
+| `backup.py`, `notices.py`, `startup.py` | Backups, developer messages, and starting with Windows |
 | `chime.py` | The optional counted-chest sound, generated in code |
+| `fortnite_stats.py` | The optional Fortnite-API player-stats lookup |
 | `settings.py`, `protocol.py` | Saved settings and counts, and the rules for names, webhook links and messages |
+| `tools/make_screenshots.py` | Draws the README screenshots from sample data (`python tools/make_screenshots.py docs/images`) |
 | `tests/` | The automated tests. They run on any OS, since the Windows calls are stubbed |
 
 To publish a release:
@@ -224,14 +254,13 @@ To publish a release:
 3. Commit and push, then tag it: `git tag v1.2.0` and `git push origin v1.2.0`.
 
 The **Release** workflow checks the tag matches `version.py` and that the notes section exists, runs the tests, builds `Chest-Tracker.exe` and attaches it to a GitHub release, which is what the download link and the in-app updater serve.
-| `fortnite_stats.py` | The optional Fortnite-API player-stats lookup |
 
-## Replay scanner (test build)
+To test only the replay reader, tag `scanner-v0.0.1` (any `scanner-v*` tag) and the **Scanner** workflow builds `chest-scan.exe` for you.
 
-After each match the app reads Fortnite's replay file with the bundled `chest-scan` program and uses its exact chest count (including broken chests). If the replay can't be read, the screen count is kept. Turn it off in Setup under "Replay counting". The program's source is in `scanner/` (see `scanner/README.md`); building it needs the .NET 10 SDK, which `build.ps1` uses if present.
+## Credits and license
 
-## License
+[MIT](LICENSE). Chest Tracker began from [Xxoris190/chest-tracker](https://github.com/Xxoris190/chest-tracker), whose copyright notice is kept in the license.
 
-[MIT](LICENSE)
+The replay reader (`scanner/`) is built on [LED-N's ChestCounter](https://github.com/LED-N/Fortnite-ChestCounter) and a patched FortniteReplayDecompressor, both MIT; see `scanner/THIRD_PARTY_NOTICES.md`. The treasure hunt data comes from ChestCounter's content file.
 
 Chest Tracker is an unofficial fan project. It isn't affiliated with, endorsed by, or sponsored by Epic Games. Fortnite is a trademark of Epic Games, Inc.

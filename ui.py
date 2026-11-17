@@ -1742,10 +1742,7 @@ class GroupPage(QWidget):
         )
 
     def show_leaderboard(self, rows: list[tuple[str, int]], total: int) -> None:
-        while self.board.count():
-            item = self.board.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.board)
         if not rows:
             self.board.addWidget(label(
                 "No chests on the leaderboard yet. The player running the bot sees totals here once "
@@ -2135,7 +2132,8 @@ class TreasuresPage(QWidget):
         clear_layout(self.week)
         for prize, count, marked in found_now:
             kind = "" if prize.kind == "pirate-shop" else f" ({treasures.kind_name(prize.kind)})"
-            box = QCheckBox(prize.name + kind + (f" x{count}" if count > 1 else "") + (" - found in a replay" if count else ""))
+            text = prize.name + kind + (f" x{count}" if count > 1 else "") + (" - found in a replay" if count else "")
+            box = QCheckBox(text.replace("&", "&&"))  # a lone & would turn the next letter into a shortcut
             box.setChecked(bool(count or marked))
             box.setEnabled(not count)  # a replay already proves it
             box.toggled.connect(lambda on, pid=prize.id: self.tick(pid, on))
