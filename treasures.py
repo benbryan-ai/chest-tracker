@@ -68,18 +68,39 @@ def chance(content: Content, odds: Odds, times: list[datetime], plain: int) -> C
     return Chance(odds, len(times) + max(0, plain), -math.expm1(never), expected, never)
 
 
-def chances(content: Content, history: list[dict], now: datetime) -> list[Chance]:
-    """One row per kind of prize. Weekly prizes only count the shown week's chests, the others the whole hunt."""
+def started_weeks(content: Content, now: datetime) -> list[Week]:
+    """The weeks that have begun, newest first (so past weeks stay available)."""
+    return sorted((w for w in content.weeks if w.start <= now), key=lambda w: w.start, reverse=True)
+
+
+def total_found(content: Content, all_finds: list[Find], marked: set[str]) -> int:
+    """Treasures found: replay finds, plus prizes ticked by hand that no replay showed."""
+    known = list(content.pirate_shop and [content.pirate_shop] or []) + [p for w in content.weeks for p in w.prizes]
+    matched = 0
+    total = 0
+    for prize in known:
+        n = sum(1 for f in all_finds if matches_prize(f, prize))
+        matched += n
+        total += max(n, 1 if prize.id in marked else 0)
+    return total + (len(all_finds) - matched)
+
+
+def chances(content: Content, history: list[dict], now: datetime, week: Week | None = None) -> list[Chance]:
+    """One row per kind of prize, for a week (default: the current one).
+
+    Weekly prizes only count that week's chests; the others count the whole hunt up to the end of that week.
+    """
     start = content.hunt_start()
     if start is None:
         return []
-    week = content.shown_week(now)
+    week = week or content.shown_week(now)
+    until = week.end if week and week.end <= now else None
     out = []
     for odds in content.odds:
         if odds.weekly and week:
             times, plain = counted_chests(history, week.start, week.end)
         else:
-            times, plain = counted_chests(history, start)
+            times, plain = counted_chests(history, start, until)
         out.append(chance(content, odds, times, plain))
     return out
 

@@ -11,11 +11,12 @@ from datetime import date, datetime
 from pathlib import Path
 
 from adjustments import Adjustments
+from marks import TreasureMarks
 from matches import MatchLog
 from settings import Stats, _write_json, read_json
 from version import VERSION
 
-FILES = ("stats.json", "matches.json", "adjustments.json")
+FILES = ("stats.json", "matches.json", "adjustments.json", "treasure_marks.json")
 MAX_BYTES = 40_000_000
 KEEP_DAILY = 7
 KEEP_SAFETY = 3
@@ -61,20 +62,21 @@ def read(path: Path) -> dict:
     return data
 
 
-def load(data: dict) -> tuple[Stats, MatchLog, Adjustments]:
-    """The three data objects as the app would load them from this backup (nothing touches the real files)."""
+def load(data: dict) -> tuple[Stats, MatchLog, Adjustments, TreasureMarks]:
+    """The data objects as the app would load them from this backup (nothing touches the real files)."""
     with tempfile.TemporaryDirectory() as temp:
         folder = Path(temp)
         for name, value in data["files"].items():
             _write_json(folder / name, value)
         stats, matches, adjustments = Stats(folder), MatchLog(folder / "matches.json"), Adjustments(folder / "adjustments.json")
+        marks = TreasureMarks(folder / "treasure_marks.json")
     if "stats.json" in data["files"] and not isinstance(data["files"]["stats.json"].get("total"), int):
         raise BadBackup("That backup's total is missing or damaged.")
-    return stats, matches, adjustments
+    return stats, matches, adjustments, marks
 
 
 def describe(data: dict) -> str:
-    stats, matches, _ = load(data)
+    stats, matches, _, _ = load(data)
     when = str(data.get("created", "")).replace("T", " ")
     return f"Made {when}: total {stats.total:,} chests, {len(matches.history):,} matches."
 

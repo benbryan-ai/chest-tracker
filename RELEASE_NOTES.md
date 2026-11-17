@@ -3,6 +3,24 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.7.1
+
+This release also includes everything from v1.6.0, v1.6.1 and v1.7.0, listed below.
+
+- **Tick off treasures by hand.** On the Treasures tab every prize in the week has a checkbox, so you can add the ones the replays didn't show. Prizes found in a replay are ticked for you and locked. Your ticks count towards "treasures found" and are included in backups.
+- **Past weeks stay up.** A week picker on the Treasures tab lets you look back at any week that has started, with its prizes, what you found, and your chances for that week.
+
+### Also new since v1.5.0
+
+**Treasure posts in Discord.** When a replay shows you found a treasure, a line like "Found a treasure: Solid Gold ..." goes to the match channel after that match's own post. There's a checkbox next to *Post each match to Discord* to turn it off. The group bot ignores these lines.
+**Treasure Hour on the overlay.** During the hunt, a small row shows how long the current Treasure Hour has left, or when the next one is expected. It can be turned off under the overlay options.
+**Imports bring treasures too.** Importing from ChestCounter now also brings its treasure finds and the time of each chest.
+**Fills in older replay-counted matches.** *Count my past replays* now also fills in chest types, treasures and chest times on matches already counted from a replay. Counts and totals don't change.
+**Match details.** Click a match in the Report tab to see its chests, types, treasures and how it was counted.
+**Backup and restore.** *Back up now...* and *Restore from a backup...* in Settings, plus an automatic daily backup (last 7 kept).
+**Replay counting warning.** A banner explains why if the replay can't be read for 3 matches in a row.
+**Messages from the developer.** Short plain-text notices (dismissable, can be turned off in Settings) without needing a new release.
+
 ## v1.7.0
 
 - **Treasure posts in Discord.** When a replay shows you found a treasure, a line like "Found a treasure: Solid Gold ..." goes to the match channel after that match's own post. There's a checkbox next to *Post each match to Discord* to turn it off. The group bot ignores these lines, so the group report is unchanged.

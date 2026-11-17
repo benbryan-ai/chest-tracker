@@ -32,7 +32,7 @@ def test_a_backup_round_trips(tmp_path):
     src.mkdir(), dst.mkdir()
     make_data(src)
     file = backup.write(src, tmp_path / "x" / "b.json")
-    stats, matches, adjustments = backup.load(backup.read(file))
+    stats, matches, adjustments, _ = backup.load(backup.read(file))
     assert stats.total == 250 and len(matches.history) == 2 and adjustments.entries[0]["chests"] == 100
     assert "250" in backup.describe(backup.read(file))
 

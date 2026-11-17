@@ -44,6 +44,7 @@ import treasures
 import timefmt
 import updater
 from adjustments import Adjustments
+from marks import TreasureMarks
 from version import VERSION
 from settings import Settings, Stats
 from store import Store
@@ -2046,12 +2047,23 @@ class TreasuresPage(QWidget):
         layout.addWidget(label("Treasures", "heading"))
         layout.addWidget(label(
             "Golden chests and their prizes during the Treasure Hunters hunt. Treasures are read from the replay "
-            "after each match, so only matches counted from a replay show up here.", "muted", wrap=True,
+            "after each match; anything the replays missed can be ticked off by hand.", "muted", wrap=True,
         ))
         self.tiles = QHBoxLayout()
         layout.addLayout(self.tiles)
+        week_row = QHBoxLayout()
         self.week_title = label("", "subheading")
-        layout.addWidget(self.week_title)
+        week_row.addWidget(self.week_title, 1)
+        self.week_box = QComboBox()
+        self.week_box.setToolTip("Look at an earlier week.")
+        self.week_box.activated.connect(lambda _: self.refresh())
+        week_row.addWidget(self.week_box)
+        layout.addLayout(week_row)
+        self.week_note = label(
+            "Tick a prize you got that the replays didn't show (prizes found in a replay are ticked for you).",
+            "muted", wrap=True,
+        )
+        layout.addWidget(self.week_note)
         self.week = QVBoxLayout()
         layout.addLayout(self.week)
         layout.addWidget(label("Your chances", "subheading"))
@@ -2073,6 +2085,10 @@ class TreasuresPage(QWidget):
         layout.addWidget(self.credit)
         layout.addStretch(1)
 
+    def tick(self, prize_id: str, on: bool) -> None:
+        self.window_.treasure_marks.set(prize_id, on)
+        QTimer.singleShot(0, self.refresh)  # after this click has finished, since refreshing rebuilds the boxes
+
     def show_more(self) -> None:
         self.shown_finds += 10
         self.refresh()
@@ -2084,15 +2100,28 @@ class TreasuresPage(QWidget):
         now = datetime.now(timezone.utc)
         clock = window.settings["clock_format"]
         all_finds = treasures.finds(history)
-        week = content.shown_week(now)
+        marks = self.window_.treasure_marks
+        weeks = treasures.started_weeks(content, now)
+        numbers = [w.number for w in weeks]
+        if numbers != [self.week_box.itemData(i) for i in range(self.week_box.count())]:
+            keep = self.week_box.currentData()
+            self.week_box.blockSignals(True)
+            self.week_box.clear()
+            for index, w in enumerate(weeks):
+                self.week_box.addItem(f"Week {w.number}" + (" (this week)" if index == 0 and w.end > now else ""), w.number)
+            self.week_box.setCurrentIndex(max(0, self.week_box.findData(keep)))
+            self.week_box.blockSignals(False)
+        week = next((w for w in weeks if w.number == self.week_box.currentData()), None) or content.shown_week(now)
 
         clear_layout(self.tiles)
         collection = treasures.collection(content, all_finds, week)
-        got = sum(1 for _, n in collection if n)
+        found_now = [(p, n, marks.is_marked(p.id)) for p, n in collection]
+        got = sum(1 for _, n, marked in found_now if n or marked)
+        shop = sum(max(n, 1 if marked else 0) for p, n, marked in found_now if p.kind == "pirate-shop")
         for value, name in (
-            (f"{len(all_finds):,}", "treasures found"),
-            (f"{got} of {len(collection)}" if collection else "-", "prizes found this week"),
-            (f"{sum(n for p, n in collection if content.pirate_shop and p is content.pirate_shop):,}", "Pirate Shop Access"),
+            (f"{treasures.total_found(content, all_finds, set(marks.found)):,}", "treasures found"),
+            (f"{got} of {len(collection)}" if collection else "-", f"prizes found, week {week.number}" if week else "prizes found"),
+            (f"{shop:,}", "Pirate Shop Access"),
         ):
             card = QFrame()
             card.setObjectName("statCard")
@@ -2104,19 +2133,20 @@ class TreasuresPage(QWidget):
 
         self.week_title.setText(f"Week {week.number}: {week.title}" if week else "This week")
         clear_layout(self.week)
-        for prize, count in collection or []:
+        for prize, count, marked in found_now:
             kind = "" if prize.kind == "pirate-shop" else f" ({treasures.kind_name(prize.kind)})"
-            text = f"{'Found' if count else 'Not yet'}: {prize.name}{kind}"
-            if count > 1:
-                text += f" x{count}"
-            self.week.addWidget(label(text, "small" if not count else ""))
+            box = QCheckBox(prize.name + kind + (f" x{count}" if count > 1 else "") + (" - found in a replay" if count else ""))
+            box.setChecked(bool(count or marked))
+            box.setEnabled(not count)  # a replay already proves it
+            box.toggled.connect(lambda on, pid=prize.id: self.tick(pid, on))
+            self.week.addWidget(box)
         if not collection:
             self.week.addWidget(label("No hunt data available.", "small"))
         elif week and not week.prizes:
             self.week.addWidget(label("This week's prizes haven't been announced in the data yet.", "small"))
 
         clear_layout(self.chances)
-        rows = treasures.chances(content, history, now)
+        rows = treasures.chances(content, history, now, week)
         replay_chests = sum(1 for m in history if m.get("chest_times"))
         self.chances_note.setText(
             "Chance of finding each kind of prize at least once with the chests you opened, counting the boosted "
@@ -2183,6 +2213,7 @@ class MainWindow(QMainWindow):
         self.stats = Stats(folder)
         self.matches = MatchLog(folder / "matches.json")
         self.adjustments = Adjustments(folder / "adjustments.json")
+        self.treasure_marks = TreasureMarks(folder / "treasure_marks.json")
         self.recap = RecapDetector.load_bundled()  # None: matches are then ended with the key or button
         self.engine: WatchEngine | None = None
         self.bot: BotRunner | None = None
@@ -2718,7 +2749,7 @@ class MainWindow(QMainWindow):
         """Replace the total, match history and change list with a backup's. Returns a problem, or None if it worked."""
         try:
             data = backup.read(path)
-            stats, matches, adjustments = backup.load(data)
+            stats, matches, adjustments, marks = backup.load(data)
         except backup.BadBackup as error:
             return str(error)
         backup.safety_backup(self.folder)
@@ -2729,6 +2760,8 @@ class MainWindow(QMainWindow):
         self.matches.save()
         self.adjustments.entries = adjustments.entries
         self.adjustments.save()
+        self.treasure_marks.found = marks.found
+        self.treasure_marks.set("", False)  # writes the restored ticks to disk
         log.info("Restored a backup: total %d, %d matches", stats.total, len(matches.history))
         self._refresh_total()
         return None
