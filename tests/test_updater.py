@@ -11,7 +11,7 @@ import updater
 from updater import (CheckResult, Release, UpdateError, check_latest, clean_up_leftovers, download_update,
                      install_update, is_newer, parse_version, plain_notes, relaunch)
 
-REPO = "benjamin-bryant/chest-tracker"
+REPO = "benbryan-ai/chest-tracker"
 BODY = b"new exe bytes " * 1000
 SHA = hashlib.sha256(BODY).hexdigest()
 
