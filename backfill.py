@@ -20,6 +20,7 @@ class BackfillPlan:
     new: list[dict] = field(default_factory=list)  # matches to add
     replaced: list[dict] = field(default_factory=list)  # {"old": [records], "new": record}
     already: int = 0  # replays whose match already carries the replay's count
+    refreshed: int = 0  # matches already counted from a replay that only get chest types, times and treasures filled in
     total_change: int = 0
 
     @property
@@ -67,11 +68,16 @@ def make_plan(counts: list[ReplayCount], history: list[dict], since: datetime) -
             if i not in taken and r.start - SLACK <= datetime.fromisoformat(m["start"]) <= r.end + SLACK
         ]
         taken.update(i for i, _ in covered)
+        record = _record(r)
         if covered and all(m.get("source") == "replay" for _, m in covered) and len(covered) == 1 \
                 and covered[0][1]["chests"] == r.chests:
-            plan.already += 1
+            m = covered[0][1]
+            if (r.kinds and "kinds" not in m) or (r.chest_times and "chest_times" not in m):
+                plan.replaced.append({"old": [m], "new": record})
+                plan.refreshed += 1
+            else:
+                plan.already += 1
             continue
-        record = _record(r)
         if covered:
             old = [m for _, m in covered]
             plan.replaced.append({"old": old, "new": record})

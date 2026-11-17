@@ -12,6 +12,7 @@ from widgets import ASH, BONE, DUSK, EMBER, GOLD, GOLD_LIGHT, LINE, MINT
 
 BASE_WIDTH, BASE_HEIGHT = 220, 76
 EXTRA_HEIGHT = 20  # the extra row for the last match and the session
+HOUR_HEIGHT = 18  # the row for a Treasure Hour, when there is one to mention
 MIN_SCALE, MAX_SCALE = 0.7, 2.0
 MIN_OPACITY, MAX_OPACITY = 0.3, 1.0
 
@@ -49,6 +50,8 @@ class ChestOverlay(QWidget):
         self.match = 0
         self.show_match = True
         self.show_last = True
+        self.show_hour = True
+        self.hour_text = ""
         self.last_match: int | None = None
         self.session = 0
         self.session_matches = 0
@@ -88,8 +91,22 @@ class ChestOverlay(QWidget):
         self._resize()
         self.update()
 
+    def set_hour(self, text: str) -> None:
+        if text != self.hour_text:
+            self.hour_text = text
+            self._resize()
+            self.update()
+
+    def set_hour_visible(self, shown: bool) -> None:
+        self.show_hour = shown
+        self._resize()
+        self.update()
+
+    def _hour_row(self) -> bool:
+        return self.show_hour and bool(self.hour_text)
+
     def _height(self) -> int:
-        return BASE_HEIGHT + (EXTRA_HEIGHT if self.show_last else 0)
+        return BASE_HEIGHT + (EXTRA_HEIGHT if self.show_last else 0) + (HOUR_HEIGHT if self._hour_row() else 0)
 
     def _resize(self) -> None:
         self.setFixedSize(round(BASE_WIDTH * self.scale), round(self._height() * self.scale))
@@ -220,6 +237,12 @@ class ChestOverlay(QWidget):
             session = f"{self.session:,}" + (f" · {self.session_matches} {'match' if self.session_matches == 1 else 'matches'}" if self.session_matches else "")
             painter.drawText(QRectF(14, BASE_HEIGHT - 6, BASE_WIDTH - 28, 18), Qt.AlignmentFlag.AlignLeft, f"LAST {last}")
             painter.drawText(QRectF(14, BASE_HEIGHT - 6, BASE_WIDTH - 28, 18), Qt.AlignmentFlag.AlignRight, f"Session {session}")
+
+        if self._hour_row():
+            top = BASE_HEIGHT - 6 + (EXTRA_HEIGHT if self.show_last else 0)
+            painter.setPen(QColor(GOLD_LIGHT if self.hour_text.startswith("TREASURE") else ASH))
+            painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+            painter.drawText(QRectF(14, top, BASE_WIDTH - 28, 18), Qt.AlignmentFlag.AlignLeft, self.hour_text)
 
         if self._flash > 0:
             painter.setPen(Qt.PenStyle.NoPen)

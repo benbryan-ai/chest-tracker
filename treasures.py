@@ -111,3 +111,23 @@ def percent(value: float) -> str:
     if value >= 0.99995:
         return "over 99.99%"
     return f"{value * 100:.2f}%" if value < 0.1 else f"{value * 100:.1f}%"
+
+
+def _span(delta) -> str:
+    minutes = max(1, round(delta.total_seconds() / 60))
+    return f"{minutes} min" if minutes < 60 else f"{minutes // 60}h {minutes % 60:02d}m"
+
+
+HOUR_LOOKAHEAD_HOURS = 6
+
+
+def hour_status(content: Content, now: datetime) -> str:
+    """A short line about the Treasure Hour going on or coming up soon, or "" when there's nothing to say."""
+    for h in content.hours:
+        if h.start <= now < h.end:
+            return f"TREASURE HOUR: {_span(h.end - now)} left"
+    upcoming = [h for h in content.hours if now < h.start and (h.start - now).total_seconds() <= HOUR_LOOKAHEAD_HOURS * 3600]
+    if not upcoming:
+        return ""
+    nxt = min(upcoming, key=lambda h: h.start)
+    return f"Treasure Hour in {_span(nxt.start - now)}" + ("" if nxt.confirmed else " (expected)")

@@ -67,3 +67,15 @@ def test_start_with_windows_is_off_where_it_cannot_work(tmp_path):
     assert not startup.supported(tmp_path / "x.exe") and not startup.is_enabled()
     assert startup.set_enabled(True, tmp_path / "x.exe") is False
     assert startup.command(Path("C:/A/Chest-Tracker.exe")) == '"C:/A/Chest-Tracker.exe" --minimized'
+
+
+def test_match_details_list_types_and_treasures():
+    match = m("2026-11-14T21:00:00", 12, source="replay", opened=10, broken=2, kinds={"Chest": 9, "Rare chest": 3},
+              treasures=[{"name": "Solid Gold X"}])
+    match["end"] = "2026-11-14T21:18:00"
+    text = report.match_details(match, "24")
+    assert "21:00" in text and "18 minutes" in text and "counted from the replay" in text
+    assert "10 opened, 2 broken" in text and "Chest: 9" in text and "Solid Gold X" in text
+    assert report.match_line(match, "24").endswith("12 chests (2 broken), 1 treasure")
+    plain = report.match_details(m("2026-11-14T21:00:00", 1), "24")
+    assert "counted from the screen" in plain and "opened" not in plain and "minutes" not in plain

@@ -166,6 +166,27 @@ def pick_replay(counts: list[ReplayCount], first_chest: datetime) -> ReplayCount
     return max(holding, key=lambda c: c.start) if holding else None
 
 
+@dataclass
+class Miss:
+    """Why no replay count came back: "folder" (not found), "none" (nothing saved for the match), "unreadable"."""
+
+    reason: str
+
+
+MISS_TEXT = {
+    "folder": "Fortnite's replay folder wasn't found. Check the folder in Settings.",
+    "none": "No replay was saved for that match. Is Record Replays turned on in Fortnite's settings?",
+    "unreadable": "A replay was found but couldn't be read. A Fortnite update may have changed the replay format.",
+}
+
+
+def diagnose(first_chest: datetime, folder: Path) -> Miss:
+    """After giving up: was the folder missing, was nothing saved, or was a saved replay unreadable?"""
+    if not folder.is_dir():
+        return Miss("folder")
+    return Miss("unreadable" if recent_replays(folder, first_chest - SLACK) else "none")
+
+
 def count_match(
     first_chest: datetime,
     folder: Path,

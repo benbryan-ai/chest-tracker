@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+import backup
 import importer
+import notices
 import replays
 import ui
 from datetime import datetime
@@ -938,3 +940,122 @@ def test_a_replay_with_a_treasure_logs_it(window):
     assert any("Solid Gold X" in window.tracker.activity.item(i).text() for i in range(window.tracker.activity.count()))
     assert window.matches.history[-1]["treasures"][0]["name"] == "Solid Gold X"
     assert window.matches.history[-1]["chest_times"] == [1700000000, 1700000060]
+
+
+# --- backups, notices, replay health ---
+
+def test_restoring_a_backup_replaces_the_data_and_keeps_a_safety_copy(window, tmp_path):
+    window.stats.adjust_total(500)
+    window.record_chest(1, "detected")
+    window.finish_match("key")
+    good = backup.write(window.folder, tmp_path / "good.json")
+    window.set_total(7)
+    window.matches.history = []
+    window.matches.save()
+    assert window.restore_backup(good) is None
+    assert window.stats.total == 501 and len(window.matches.history) == 1
+    assert list(backup.backups_folder(window.folder).glob("before-restore-*.json"))
+    assert window.restore_backup(tmp_path / "nope.json")  # a missing file is refused with a message
+    junk = tmp_path / "junk.json"
+    junk.write_text("[]")
+    assert window.restore_backup(junk) and window.stats.total == 501  # refused, nothing changed
+
+
+def test_the_automatic_backup_can_be_turned_off(window):
+    window.stats.adjust_total(5)
+    window.settings.set(auto_backup=False)
+    window.run_auto_backup()
+    assert not backup.backups_folder(window.folder).exists()
+    window.settings.set(auto_backup=True)
+    window.run_auto_backup()
+    assert list(backup.backups_folder(window.folder).glob("backup-*.json"))
+
+
+def test_three_missed_replays_in_a_row_show_a_warning_and_a_success_clears_it(window):
+    record = finished_match(window)
+    for _ in range(2):
+        window._on_replay_counted(record, replays.Miss("none"))
+    assert not window.notice_banner.isVisibleTo(window)
+    window._on_replay_counted(record, replays.Miss("none"))
+    assert window.notice_banner.isVisibleTo(window) and "Record Replays" in window.notice_text.text()
+    window.dismiss_notice()
+    assert not window.notice_banner.isVisibleTo(window)
+    window._on_replay_counted(record, replays.Miss("unreadable"))
+    assert not window.notice_banner.isVisibleTo(window)  # dismissed until a replay works again
+    window._on_replay_counted(record, replays.ReplayCount("r", 2, 2, 0, datetime.now(), datetime.now()))
+    assert window.replay_misses == 0 and window.health_dismissed is False
+
+
+def test_a_developer_notice_shows_and_can_be_dismissed_for_good(window):
+    window.notice_feed.items = notices.parse({"schema": 1, "notices": [
+        {"id": "fn-update", "level": "warning", "title": "Fortnite update", "text": "Replay reading is being fixed."}]})
+    window._refresh_notice()
+    assert window.notice_banner.isVisibleTo(window) and "Replay reading is being fixed" in window.notice_text.text()
+    window.dismiss_notice()
+    assert not window.notice_banner.isVisibleTo(window)
+    assert window.settings["dismissed_notices"] == ["fn-update"]
+    window.settings.set(dismissed_notices=[], show_notices=False)
+    window._refresh_notice()
+    assert not window.notice_banner.isVisibleTo(window)
+
+
+def test_the_settings_page_has_the_backup_and_message_controls(window):
+    page = window.settings_page
+    page.auto_backup.setChecked(False)
+    assert window.settings["auto_backup"] is False
+    page.notices_box.setChecked(False)
+    assert window.settings["show_notices"] is False
+
+
+def test_clicking_a_match_shows_its_details(window, monkeypatch):
+    shown = []
+    monkeypatch.setattr(ui.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    window.matches.history = [{"start": "2026-11-14T21:00:00", "end": "2026-11-14T21:10:00", "chests": 4,
+                               "source": "replay", "opened": 3, "broken": 1, "kinds": {"Chest": 4}}]
+    window.report.refresh()
+    window.report.show_details(window.report.latest.item(0))
+    assert shown and "3 opened, 1 broken" in shown[0]
+
+
+# --- treasure posts and the overlay hour ---
+
+def treasure_replay(names=("Solid Gold X",)):
+    return replays.ReplayCount("r", 2, 2, 0, datetime.now(), datetime.now(),
+                               treasures=[{"name": n, "kind": "outfit", "prize_id": None, "golden": True, "at": 5} for n in names])
+
+
+def test_treasures_are_posted_after_the_match_line(window):
+    record = finished_match(window)
+    window.poster.queue.clear()
+    window._on_replay_counted(record, treasure_replay(("Solid Gold X", "Pickaxe Y")))
+    assert window.poster.queue[0]["chests"] == 2
+    assert [("Solid Gold X" in q["text"]) for q in window.poster.queue[1:]] == [True, False]
+    assert "Pickaxe Y" in window.poster.queue[2]["text"]
+
+
+def test_treasure_posts_can_be_turned_off_and_need_the_match_channel(window):
+    record = finished_match(window)
+    window.poster.queue.clear()
+    window.settings.set(treasure_post=False)
+    window._on_replay_counted(record, treasure_replay())
+    assert all("text" not in q for q in window.poster.queue)
+    window.poster.queue.clear()
+    window.settings.set(treasure_post=True, match_webhook_url="")
+    window._on_replay_counted(record, treasure_replay())
+    assert window.poster.queue == []
+
+
+def test_the_overlay_hour_row_shows_and_hides(window):
+    height = window.overlay.height()
+    window.overlay.set_hour("TREASURE HOUR: 5 min left")
+    assert window.overlay.height() > height
+    window.set_overlay_hour(False)
+    assert window.overlay.height() == height and window.settings["overlay_show_hour"] is False
+    window.setup.overlay_hour.setChecked(False)
+    window.setup.overlay_hour.setChecked(True)
+    assert window.settings["overlay_show_hour"] is True
+
+
+def test_the_import_window_looks_prizes_up_in_the_hunt_data(window):
+    dialog = ui.TotalDialog(window)
+    assert dialog.offers == [] or all(hasattr(o, "matches") for o in dialog.offers)

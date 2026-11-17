@@ -7,7 +7,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import timedelta, timezone
 from pathlib import Path
 
 from replays import _utc_to_local
@@ -68,7 +68,32 @@ def _kinds(entry) -> dict:
     return found
 
 
-def _match(entry, total: int, broken: int) -> dict | None:
+def _treasures(entry, start, lookup) -> list[dict]:
+    """Treasure finds from the other tracker's match, with names looked up from the hunt data when it knows the prize."""
+    finds = []
+    raw = _field(entry, "TreasureFinds")
+    for t in raw[:50] if isinstance(raw, list) else []:
+        prize_id = _field(t, "PrizeId")
+        prize_id = prize_id if isinstance(prize_id, str) else None
+        known = lookup(prize_id) if (lookup and prize_id) else None
+        name = known[0] if known else str(_field(t, "Item") or "").strip()
+        if not name:
+            continue
+        seconds = _field(t, "ObtainedAtSeconds")
+        at = int(start.astimezone(timezone.utc).timestamp() + seconds) if isinstance(seconds, (int, float)) else None
+        finds.append({"name": name[:120], "kind": known[1] if known else None, "prize_id": prize_id,
+                      "golden": _field(t, "FromGoldenChest") is True, "at": at})
+    return finds
+
+
+def _chest_times(entry, start) -> list[int]:
+    chests = _field(entry, "Chests")
+    base = start.astimezone(timezone.utc).timestamp()
+    return sorted(int(base + c_seconds) for c in (chests[:600] if isinstance(chests, list) else [])
+                  if isinstance(c_seconds := _field(c, "TimeSeconds"), (int, float)) and not isinstance(c_seconds, bool))
+
+
+def _match(entry, total: int, broken: int, lookup=None) -> dict | None:
     if total < 1:
         return None
     try:
@@ -77,10 +102,17 @@ def _match(entry, total: int, broken: int) -> dict | None:
         return None
     seconds = _field(entry, "DurationSeconds")
     end = start + timedelta(seconds=int(seconds)) if isinstance(seconds, (int, float)) and seconds > 0 else start
-    return {
+    record = {
         "start": start.isoformat(timespec="seconds"), "end": end.isoformat(timespec="seconds"),
         "chests": total, "opened": max(0, total - broken), "broken": broken, "kinds": _kinds(entry),
     }
+    finds = _treasures(entry, start, lookup)
+    if finds:
+        record["treasures"] = finds
+    times = _chest_times(entry, start)
+    if times:
+        record["chest_times"] = times
+    return record
 
 
 def _broken(entry) -> int:
@@ -98,7 +130,7 @@ def _counts_in_l(entry) -> bool:
     return game_map is None or str(game_map).lower() in SEASON_MAPS
 
 
-def read_l(path: Path) -> list[ImportOffer]:
+def read_l(path: Path, lookup=None) -> list[ImportOffer]:
     """One offer per account in ChestCounter's data.json (usually just one)."""
     data = _load(path)
     entries = _field(data, "Matches")
@@ -119,7 +151,7 @@ def read_l(path: Path) -> list[ImportOffer]:
         except (TypeError, ValueError):
             opened = 0
         group["total"] += max(0, opened)
-        record = _match(entry, opened, _broken(entry))
+        record = _match(entry, opened, _broken(entry), lookup)
         if record:
             group["matches"].append(record)
     offers = []
@@ -134,7 +166,7 @@ def read_l(path: Path) -> list[ImportOffer]:
     return sorted(offers, key=lambda o: -o.chests)
 
 
-def read_d(history: Path, settings: Path | None = None) -> list[ImportOffer]:
+def read_d(history: Path, settings: Path | None = None, lookup=None) -> list[ImportOffer]:
     """The offer from chest-tracker's history.json (+ the starting number in settings.json)."""
     data = _load(history)
     entries = _field(data, "Matches")
@@ -145,7 +177,7 @@ def read_d(history: Path, settings: Path | None = None) -> list[ImportOffer]:
         chests = _field(entry, "Chests")
         count = len(chests) if isinstance(chests, list) else 0
         total += count
-        record = _match(entry, count, _broken(entry))
+        record = _match(entry, count, _broken(entry), lookup)
         if record:
             matches.append(record)
     starting = 0
@@ -159,9 +191,9 @@ def read_d(history: Path, settings: Path | None = None) -> list[ImportOffer]:
     return [ImportOffer("chest-tracker", "all matches", total + starting, matches, starting)]
 
 
-def find_offers(appdata: Path | None = None) -> list[ImportOffer]:
+def find_offers(appdata: Path | None = None, lookup=None) -> list[ImportOffer]:
     """Whatever the other trackers left on this PC."""
     base = appdata or Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
-    offers = read_l(base / "ChestCounter" / "data.json")
-    offers += read_d(base / "chest-tracker" / "history.json", base / "chest-tracker" / "settings.json")
+    offers = read_l(base / "ChestCounter" / "data.json", lookup)
+    offers += read_d(base / "chest-tracker" / "history.json", base / "chest-tracker" / "settings.json", lookup)
     return [o for o in offers if o.chests > 0]

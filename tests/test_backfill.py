@@ -86,3 +86,28 @@ def test_scanning_goes_through_the_folder_in_batches(tmp_path):
                                  scan=lambda exe, files: calls.append(len(files)) or [])
     assert found == [] and sum(calls) == 20 and max(calls) <= backfill.BATCH
     assert progress[-1] == (20, 20)
+
+
+def test_a_replay_counted_match_without_details_is_filled_in_not_recounted():
+    r = rc(datetime(2026, 11, 5, 20), chests=10)
+    r.kinds, r.chest_times = {"Chest": 10}, [1763000000]
+    bare = rec(datetime(2026, 11, 5, 20, 3), chests=10, source="replay", opened=9, broken=1)
+    plan = backfill.make_plan([r], [bare], SINCE)
+    assert plan.refreshed == 1 and plan.total_change == 0 and len(plan.replaced) == 1 and plan.new == []
+    full = dict(bare, kinds={"Chest": 10}, chest_times=[1763000000])
+    again = backfill.make_plan([r], [full], SINCE)
+    assert again.nothing_to_do and again.already == 1
+
+
+def test_a_refresh_keeps_the_total_and_can_be_undone(tmp_path):
+    log = MatchLog(tmp_path / "m.json")
+    r = rc(datetime(2026, 11, 5, 20), chests=10)
+    r.kinds = {"Chest": 10}
+    bare = rec(datetime(2026, 11, 5, 20, 3), chests=10, source="replay", opened=9, broken=1)
+    log.history = [bare]
+    plan = backfill.make_plan([r], log.history, SINCE)
+    undo = log.apply_backfill("b1", plan.new, plan.replaced)
+    assert log.history[0]["kinds"] == {"Chest": 10} and log.history[0]["chests"] == 10
+    log.remove_batch("b1")
+    log.restore(undo["restore"])
+    assert log.history[0].get("kinds") is None and log.history[0]["chests"] == 10

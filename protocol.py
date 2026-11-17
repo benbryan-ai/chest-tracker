@@ -71,6 +71,15 @@ def party_problem(code: str) -> str | None:
     return "Use 3 to 12 letters or numbers, with no spaces or symbols."
 
 
+TREASURE_PREFIX = "\U0001F3F4\u200D\u2620\uFE0F Found a treasure: "
+
+
+def format_treasure(name: str) -> str:
+    """A plain line for a treasure find. The bot doesn't read it; it's there for people in the channel."""
+    clean = " ".join(re.sub(r"[`*_~|<>@#\[\]()]", "", name).split())[:100]
+    return f"{TREASURE_PREFIX}{clean or 'something golden'}"
+
+
 def format_match(chests: int, party: str = "") -> str:
     text = f"\U0001F3AE {chests} chest{'' if chests == 1 else 's'} this match"
     party = normalize_party(party)

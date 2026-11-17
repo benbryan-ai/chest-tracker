@@ -85,3 +85,24 @@ def test_adjustments_persist_and_reject_zero(tmp_path):
     entry = a.add(-5, "hand", "Total set to 3")
     assert Adjustments(tmp_path / "a.json").entries[0]["chests"] == -5
     assert a.remove(entry["id"]) is not None and a.remove(entry["id"]) is None
+
+
+def test_treasure_finds_and_chest_times_come_across_from_l(tmp_path):
+    match = l_match(3)
+    match["Chests"] = [{"Destroyed": False, "TimeSeconds": 60.0}, {"Destroyed": False, "TimeSeconds": 30.5},
+                       {"Destroyed": True, "TimeSeconds": 90}]
+    match["TreasureFinds"] = [
+        {"PrizeId": "DelilahPrize:dpid_item14", "Item": "raw", "FromGoldenChest": True, "ObtainedAtSeconds": 45.0},
+        {"Item": "Some Skin", "FromGoldenChest": False}, {"Item": ""},
+    ]
+    path = write(tmp_path / "d.json", {"Matches": [match]})
+    lookup = lambda pid: ("Solid Gold Lil Uzi Vert", "outfit") if pid == "DelilahPrize:dpid_item14" else None
+    [offer] = importer.read_l(path, lookup)
+    record = offer.matches[0]
+    start = int(importer._utc_to_local("2026-11-14T21:00:00.0000000Z").astimezone(__import__("datetime").timezone.utc).timestamp())
+    assert record["chest_times"] == [start + 30, start + 60, start + 90]
+    assert [t["name"] for t in record["treasures"]] == ["Solid Gold Lil Uzi Vert", "Some Skin"]
+    assert record["treasures"][0]["kind"] == "outfit" and record["treasures"][0]["golden"] is True
+    assert record["treasures"][0]["at"] == start + 45 and record["treasures"][1]["at"] is None
+    plain = importer.read_l(path)[0].matches[0]["treasures"]  # no hunt data to look names up in: the raw item name stays
+    assert [t["name"] for t in plain] == ["raw", "Some Skin"]

@@ -3,6 +3,24 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.7.0
+
+- **Treasure posts in Discord.** When a replay shows you found a treasure, a line like "Found a treasure: Solid Gold ..." goes to the match channel after that match's own post. There's a checkbox next to *Post each match to Discord* to turn it off. The group bot ignores these lines, so the group report is unchanged.
+- **Treasure Hour on the overlay.** During the hunt, a small row shows "TREASURE HOUR: 40 min left" while one is on, or "Treasure Hour in 2h 10m (expected)" when one is coming within 6 hours. It disappears when there's nothing to show, and can be turned off under the overlay options.
+- **Imports bring treasures too.** Importing from ChestCounter now also brings its treasure finds (with prize names filled in from the hunt data) and the time of each chest, so the Treasures tab and your chances include your history from there.
+
+## v1.6.1
+
+- **Fills in older replay-counted matches.** Running **Count my past replays** (in *Edit total...*) now also updates matches that were already counted from a replay before chest types, treasures and chest times were saved. Their chest count stays the same; only the details are filled in, and your total doesn't change. The confirm window says how many matches this applies to, and it can be undone like the rest.
+- **Match details.** Click a match in the Report tab to see when it started, how many chests were opened and broken, the chest types, any treasures and how it was counted. Matches with treasures say so in the list.
+
+## v1.6.0
+
+- **Backup and restore.** In **Settings**, *Back up now...* saves your total, match history and list of changes to one file, and *Restore from a backup...* brings it back (after showing what's in it and asking first). Your current data is saved before any restore, so you can go back. Discord settings are never included in a backup.
+- **Automatic backups.** Once a day the app saves a backup in the `backups` folder inside its data folder and keeps the last 7. You can turn this off in Settings.
+- **Replay counting warning.** If the replay can't be read for 3 matches in a row, a banner says why: the replay folder wasn't found, no replay was saved (is Record Replays on?), or a replay was found but couldn't be read (a Fortnite update may have changed the format). The screen count keeps being used meanwhile.
+- **Messages from the developer.** The app can show a short message (for example "a Fortnite update broke replay reading, a fix is coming") without a new release. They come from `notices.json` in this repo, only plain text is shown, you can dismiss each one, and you can turn them off in Settings.
+
 ## v1.5.0
 
 - **Treasures tab** for the Treasure Hunters hunt: how many treasures you've found, this week's prizes (found or not yet), your chances for each kind of prize, upcoming Treasure Hours, and your latest finds.

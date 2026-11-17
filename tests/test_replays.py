@@ -105,3 +105,11 @@ def test_the_scanner_is_found_by_override(tmp_path, monkeypatch):
     assert replays.find_scanner() == exe
     monkeypatch.setenv("CHEST_TRACKER_SCANNER", str(tmp_path / "nope"))
     assert replays.find_scanner() is None or replays.find_scanner() != exe
+
+
+def test_a_missing_replay_is_explained(tmp_path):
+    assert replays.diagnose(T0, tmp_path / "gone").reason == "folder"
+    assert replays.diagnose(T0, tmp_path).reason == "none"
+    (tmp_path / "x.replay").write_bytes(b"1")
+    assert replays.diagnose(T0 - timedelta(days=1), tmp_path).reason == "unreadable"
+    assert set(replays.MISS_TEXT) == {"folder", "none", "unreadable"}

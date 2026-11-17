@@ -30,12 +30,14 @@ from fortnite_stats import FortniteStatsError, fetch_stats
 from gamepad import is_pad_name, pad_label, shared_gamepad
 from matches import MatchLog
 from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
-from protocol import MAX_NAME_LENGTH, name_problem, normalize_party, party_problem, is_webhook_url
+from protocol import MAX_NAME_LENGTH, format_treasure, name_problem, normalize_party, party_problem, is_webhook_url
 from recap import RecapDetector
 import backfill
 import importer
 import replays
+import backup
 import content
+import notices
 import report
 import startup
 import treasures
@@ -449,7 +451,11 @@ class TotalDialog(QDialog):
         self.scanned.connect(self._scan_done)
         self.scan_progress.connect(lambda done, total: self.status.setText(f"Reading replays... {done} of {total}"))
         outer.addWidget(label("Bring in numbers from another tracker", "subheading"))
-        self.offers = importer.find_offers()
+        def lookup(prize_id: str):
+            prize = window.content_store.content.find_prize(prize_id)
+            return (prize.name, prize.kind) if prize else None
+
+        self.offers = importer.find_offers(lookup=lookup)
         self.offer_box = QComboBox()
         for offer in self.offers:
             self.offer_box.addItem(
@@ -544,7 +550,8 @@ class TotalDialog(QDialog):
             self, "Count past replays",
             f"Found {plan.replays_in_season} replays since {since.date().isoformat()}.\n\n"
             f"New matches added: {len(plan.new)}\n"
-            f"Matches corrected from the replay: {len(plan.replaced)}\n"
+            f"Matches corrected from the replay: {len(plan.replaced) - plan.refreshed}\n"
+            f"Matches that only get chest types and treasures filled in: {plan.refreshed}\n"
             f"Already counted from the replay: {plan.already}\n\n"
             f"Your total changes by {plan.total_change:+,}, from {total:,} to {max(0, total + plan.total_change):,}.\n"
             "Matches without a replay stay as they are. You can undo this afterwards.\n\nApply it?",
@@ -990,6 +997,11 @@ class SetupPage(QWidget):
         self.match_post.setChecked(bool(settings["match_post"]))
         self.match_post.toggled.connect(self._save_match_post)
         self.webhook_step.content.addWidget(self.match_post)
+        self.treasure_post = QCheckBox("Also post treasures I find")
+        self.treasure_post.setToolTip("A line like 'Found a treasure: Solid Gold ...' in the same channel. Needs replay counting.")
+        self.treasure_post.setChecked(bool(settings["treasure_post"]))
+        self.treasure_post.toggled.connect(lambda on: self.window_.settings.set(treasure_post=on))
+        self.webhook_step.content.addWidget(self.treasure_post)
         self.webhook_step.content.addWidget(label(
             "Playing with friends? Everyone enters the same party code (3 to 12 letters or numbers) "
             "and the bot posts one group game report. Leave it empty if you play solo.",
@@ -1094,6 +1106,10 @@ class SetupPage(QWidget):
         self.overlay_match.setChecked(settings["overlay_show_match"])
         self.overlay_match.toggled.connect(window.set_overlay_match)
         layout.addWidget(self.overlay_match)
+        self.overlay_hour = QCheckBox("Show the next Treasure Hour (during the treasure hunt)")
+        self.overlay_hour.setChecked(settings["overlay_show_hour"])
+        self.overlay_hour.toggled.connect(window.set_overlay_hour)
+        layout.addWidget(self.overlay_hour)
         self.overlay_last = QCheckBox("Also show the last match and this session")
         self.overlay_last.setChecked(settings["overlay_show_last"])
         self.overlay_last.toggled.connect(window.set_overlay_last)
@@ -1811,6 +1827,8 @@ class ReportPage(QWidget):
         layout.addWidget(label("Latest matches", "subheading"))
         self.latest = QListWidget()
         self.latest.setObjectName("activityList")
+        self.latest.setToolTip("Click a match for its details.")
+        self.latest.itemClicked.connect(self.show_details)
         layout.addWidget(self.latest)
         self.more = QPushButton("Show 10 more")
         self.more.clicked.connect(self.show_more)
@@ -1820,6 +1838,11 @@ class ReportPage(QWidget):
     def show_more(self) -> None:
         self.shown += self.PAGE
         self.refresh()
+
+    def show_details(self, item) -> None:
+        match = item.data(Qt.ItemDataRole.UserRole)
+        if match:
+            QMessageBox.information(self, "Match details", report.match_details(match, self.window_.settings["clock_format"]))
 
     def refresh(self) -> None:
         window = self.window_
@@ -1843,7 +1866,9 @@ class ReportPage(QWidget):
         self.latest.clear()
         clock = window.settings["clock_format"]
         for m in data.latest[: self.shown]:
-            self.latest.addItem(report.match_line(m, clock))
+            row = QListWidgetItem(report.match_line(m, clock))
+            row.setData(Qt.ItemDataRole.UserRole, m)
+            self.latest.addItem(row)
         if not data.latest:
             self.latest.addItem("No finished matches yet")
         self.more.setVisible(len(data.latest) > self.shown)
@@ -1906,11 +1931,77 @@ class SettingsPage(QWidget):
         layout.addWidget(self.startup_note)
 
         layout.addSpacing(8)
+        layout.addWidget(label("Messages", "subheading"))
+        self.notices_box = QCheckBox("Show short messages from the developer (for example about a Fortnite update)")
+        self.notices_box.setChecked(bool(settings["show_notices"]))
+        self.notices_box.toggled.connect(self.save_notices)
+        layout.addWidget(self.notices_box)
+
+        layout.addSpacing(8)
+        layout.addWidget(label("Backup", "subheading"))
+        layout.addWidget(label(
+            "Saves your total, match history and list of changes in one file (not your Discord settings). "
+            "A backup is also made automatically once a day and the last week is kept.", "muted", wrap=True,
+        ))
+        self.auto_backup = QCheckBox("Back up automatically")
+        self.auto_backup.setChecked(bool(settings["auto_backup"]))
+        self.auto_backup.toggled.connect(lambda on: window.settings.set(auto_backup=on))
+        layout.addWidget(self.auto_backup)
+        backup_row = QHBoxLayout()
+        save_backup = QPushButton("Back up now...")
+        save_backup.clicked.connect(self.back_up_now)
+        backup_row.addWidget(save_backup)
+        restore = QPushButton("Restore from a backup...")
+        restore.clicked.connect(self.restore)
+        backup_row.addWidget(restore)
+        backup_row.addStretch(1)
+        layout.addLayout(backup_row)
+        self.backup_status = label("", "small", wrap=True)
+        layout.addWidget(self.backup_status)
+
+        layout.addSpacing(8)
         layout.addWidget(label("Files", "subheading"))
         folder = QPushButton("Open the data folder")
         folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(window.folder))))
         layout.addWidget(folder)
         layout.addStretch(1)
+
+    def save_notices(self, on: bool) -> None:
+        self.window_.settings.set(show_notices=on)
+        self.window_._refresh_notice()
+
+    def back_up_now(self) -> None:
+        suggested = backup.backups_folder(self.window_.folder) / f"chest-tracker-backup-{datetime.now():%Y-%m-%d}.json"
+        chosen, _ = QFileDialog.getSaveFileName(self, "Save a backup", str(suggested), "Backup (*.json)")
+        if not chosen:
+            return
+        try:
+            backup.write(self.window_.folder, Path(chosen))
+        except OSError as error:
+            self.backup_status.setText(f"The backup couldn't be saved: {error}")
+            return
+        self.backup_status.setText(f"Saved to {chosen}")
+
+    def restore(self) -> None:
+        chosen, _ = QFileDialog.getOpenFileName(
+            self, "Choose a backup", str(backup.backups_folder(self.window_.folder)), "Backup (*.json)")
+        if not chosen:
+            return
+        try:
+            summary = backup.describe(backup.read(Path(chosen)))
+        except backup.BadBackup as error:
+            self.backup_status.setText(str(error))
+            return
+        answer = QMessageBox.question(
+            self, "Restore a backup",
+            f"{summary}\n\nThis replaces your current total, match history and list of changes. Your current data "
+            "is saved first, so you can go back.\n\nRestore it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        problem = self.window_.restore_backup(Path(chosen))
+        self.backup_status.setText(problem or "Restored. Your previous data was saved in the backups folder.")
 
     def save_folder(self) -> None:
         self.window_.settings.set(replay_folder=self.replay_folder.text().strip())
@@ -2081,6 +2172,7 @@ class MainWindow(QMainWindow):
     update_ready = Signal(object, object)  # the release and its downloaded file
     update_failed = Signal(str)
     content_refreshed = Signal()
+    notices_changed = Signal()
     replay_counted = Signal(object, object)  # the saved match, and its ReplayCount (None: not found)
 
     def __init__(self, folder: Path, icon: QIcon):
@@ -2107,6 +2199,7 @@ class MainWindow(QMainWindow):
         self.overlay.set_match(self.matches.current)
         self.overlay.set_match_visible(self.settings["overlay_show_match"])
         self.overlay.set_last_visible(self.settings["overlay_show_last"])
+        self.overlay.set_hour_visible(self.settings["overlay_show_hour"])
         self.overlay.position_saved.connect(self._save_overlay_position)
         self._overlay_positioning = False
         self._overlay_screen = None
@@ -2141,6 +2234,7 @@ class MainWindow(QMainWindow):
         self.group = GroupPage(self)
         self.fortnite_stats = FortniteStatsPage(self)
         self.content_store = content.ContentStore(folder)
+        self._update_hour()
         self.report = ReportPage(self)
         self.treasures_page = TreasuresPage(self)
         self.settings_page = SettingsPage(self)
@@ -2182,6 +2276,17 @@ class MainWindow(QMainWindow):
         banner_row.addWidget(self.banner_later)
         self.banner.hide()
         rows.addWidget(self.banner)
+        self.notice_banner = QFrame()
+        self.notice_banner.setObjectName("updateBanner")
+        notice_row = QHBoxLayout(self.notice_banner)
+        notice_row.setContentsMargins(20, 8, 20, 8)
+        self.notice_text = label("", "", wrap=True)
+        notice_row.addWidget(self.notice_text, 1)
+        self.notice_dismiss = QPushButton("Dismiss")
+        self.notice_dismiss.clicked.connect(self.dismiss_notice)
+        notice_row.addWidget(self.notice_dismiss)
+        self.notice_banner.hide()
+        rows.addWidget(self.notice_banner)
         rows.addWidget(self.stack, 1)
 
         self.chest.connect(self.record_chest)
@@ -2200,7 +2305,20 @@ class MainWindow(QMainWindow):
         self.found_update = None
         self.installing = False
         self._closing = threading.Event()
-        self.content_refreshed.connect(lambda: self.treasures_page.refresh())
+        self.content_refreshed.connect(lambda: (self.treasures_page.refresh(), self._update_hour()))
+        self.notices_changed.connect(self._refresh_notice)
+        self.hour_timer = QTimer(self)
+        self.hour_timer.timeout.connect(self._update_hour)
+        self.hour_timer.start(30_000)
+        self.notice_feed = notices.NoticeFeed()
+        self.replay_misses = 0  # matches in a row whose replay couldn't be read
+        self.miss_reason = "unreadable"
+        self.health_dismissed = False
+        self._shown_notice: str | None = None
+        QTimer.singleShot(20_000, self.run_auto_backup)
+        self.backup_timer = QTimer(self)
+        self.backup_timer.timeout.connect(self.run_auto_backup)
+        self.backup_timer.start(6 * 3600 * 1000)
         QTimer.singleShot(6000, self.refresh_content)
         self.content_timer = QTimer(self)
         self.content_timer.timeout.connect(self.refresh_content)
@@ -2414,6 +2532,8 @@ class MainWindow(QMainWindow):
                 found = replays.count_match(first_chest, folder, scanner, stop=self._closing.is_set)
             except Exception:
                 log.exception("Reading the replay failed")
+            if found is None and not self._closing.is_set():
+                found = replays.diagnose(first_chest, folder)
             if not self._closing.is_set():
                 self.replay_counted.emit(record, found)
 
@@ -2427,12 +2547,22 @@ class MainWindow(QMainWindow):
             # A hand-edited code the bot couldn't read would turn the post into a plain line.
             self.poster.add(chests, "" if party_problem(code) else normalize_party(code))
 
+    def _post_treasures(self, finds: list) -> None:
+        """One line per treasure to the match channel, after the match's own post."""
+        s = self.settings
+        if finds and s["treasure_post"] and s["match_post"] and s["match_webhook_url"] and s["player_name"]:
+            for treasure in finds[:5]:
+                self.poster.add_text(format_treasure(treasure["name"]))
+
     def _on_replay_counted(self, record: dict, found) -> None:
-        if found is None:
-            log.info("No readable replay for the match at %s; keeping the screen count", record["start"])
+        if found is None or isinstance(found, replays.Miss):
+            reason = found.reason if found else "unreadable"
+            log.info("No readable replay for the match at %s (%s); keeping the screen count", record["start"], reason)
             self.tracker.log("Couldn't read the replay, so the screen count stands", ASH)
+            self._replay_missed(reason)
             self._post_match(record["chests"])
             return
+        self._replay_worked()
         if found.note:
             log.info("Replay %s: %s", found.file, found.note)
         change = self.matches.apply_replay(record, found.chests, found.opened, found.broken, found.kinds,
@@ -2452,6 +2582,7 @@ class MainWindow(QMainWindow):
         for treasure in found.treasures:
             self.tracker.log(f"Treasure found: {treasure['name']}", GOLD)
         self._post_match(found.chests)
+        self._post_treasures(found.treasures)
 
     def export_match_history(self) -> None:
         name, _ = QFileDialog.getSaveFileName(
@@ -2469,6 +2600,16 @@ class MainWindow(QMainWindow):
     def set_overlay_match(self, shown: bool) -> None:
         self.settings.set(overlay_show_match=shown)
         self.overlay.set_match_visible(shown)
+
+    def set_overlay_hour(self, shown: bool) -> None:
+        self.settings.set(overlay_show_hour=shown)
+        self.overlay.set_hour_visible(shown)
+        self._update_hour()
+
+    def _update_hour(self) -> None:
+        """Keep the overlay's Treasure Hour line current (it only has text during the hunt, near an hour)."""
+        text = treasures.hour_status(self.content_store.content, datetime.now(timezone.utc))
+        self.overlay.set_hour(text if self.settings["overlay_show_hour"] else "")
 
     def set_overlay_last(self, shown: bool) -> None:
         self.settings.set(overlay_show_last=shown)
@@ -2512,7 +2653,7 @@ class MainWindow(QMainWindow):
         undo = self.matches.apply_backfill(batch, plan.new, plan.replaced)
         changed = self.stats.adjust_total(plan.total_change)
         note = (f"Counted past replays since {plan.since.date().isoformat()}: "
-                f"{len(plan.new)} added, {len(plan.replaced)} corrected")
+                f"{len(plan.new)} added, {len(plan.replaced) - plan.refreshed} corrected, {plan.refreshed} filled in")
         self.adjustments.add(changed, "replay", note, undo=undo, entry_id=batch)
         log.info("%s; total changed by %+d", note, changed)
         self._refresh_total()
@@ -2523,6 +2664,75 @@ class MainWindow(QMainWindow):
         self.tracker.stage.set_count(self.stats.total)
         self._show_stats()
 
+    # --- notices and replay health ---
+
+    HEALTH_AFTER = 3  # matches in a row without a readable replay before the app says something
+
+    def _replay_missed(self, reason: str) -> None:
+        self.replay_misses += 1
+        self.miss_reason = reason
+        self._refresh_notice()
+
+    def _replay_worked(self) -> None:
+        self.replay_misses = 0
+        self.health_dismissed = False
+        self._refresh_notice()
+
+    def _notice_items(self) -> list[tuple[str, str]]:
+        """What could be shown, most important first: (id, html)."""
+        items = []
+        if self.replay_misses >= self.HEALTH_AFTER and not self.health_dismissed:
+            items.append(("health", f"<b>Replay counting hasn't worked for the last {self.replay_misses} matches.</b> "
+                                    f"{replays.MISS_TEXT.get(self.miss_reason, '')} The screen count is being used."))
+        if self.settings["show_notices"]:
+            for n in self.notice_feed.current(list(self.settings["dismissed_notices"])):
+                items.append((f"notice:{n.id}", n.html()))
+        return items
+
+    def _refresh_notice(self) -> None:
+        items = self._notice_items()
+        if not items:
+            self._shown_notice = None
+            self.notice_banner.hide()
+            return
+        self._shown_notice = items[0][0]
+        self.notice_text.setText(items[0][1])
+        self.notice_banner.show()
+
+    def dismiss_notice(self) -> None:
+        shown = self._shown_notice
+        if shown == "health":
+            self.health_dismissed = True
+        elif shown and shown.startswith("notice:"):
+            kept = [i for i in self.settings["dismissed_notices"] if isinstance(i, str)] + [shown[len("notice:"):]]
+            self.settings.set(dismissed_notices=kept[-100:])
+        self._refresh_notice()
+
+    # --- backups ---
+
+    def run_auto_backup(self) -> None:
+        if self.settings["auto_backup"] and not self._closing.is_set():
+            backup.auto_backup(self.folder)
+
+    def restore_backup(self, path: Path) -> str | None:
+        """Replace the total, match history and change list with a backup's. Returns a problem, or None if it worked."""
+        try:
+            data = backup.read(path)
+            stats, matches, adjustments = backup.load(data)
+        except backup.BadBackup as error:
+            return str(error)
+        backup.safety_backup(self.folder)
+        self.stats.total, self.stats.today, self.stats.day = stats.total, stats.today, stats.day
+        self.stats.roll_over()
+        self.stats.save()
+        self.matches.history = matches.history
+        self.matches.save()
+        self.adjustments.entries = adjustments.entries
+        self.adjustments.save()
+        log.info("Restored a backup: total %d, %d matches", stats.total, len(matches.history))
+        self._refresh_total()
+        return None
+
     def _page_shown(self, index: int) -> None:
         page = self.stack.widget(index)
         if page is self.report or page is self.treasures_page:
@@ -2531,13 +2741,21 @@ class MainWindow(QMainWindow):
     def refresh_content(self) -> None:
         """Look for newer treasure hunt data in the background."""
         def work() -> None:
-            changed = False
+            changed = notices_changed = False
             try:
                 changed = self.content_store.refresh()
             except Exception:
                 log.exception("Refreshing the treasure data failed")
-            if changed and not self._closing.is_set():
+            try:
+                notices_changed = self.notice_feed.refresh()
+            except Exception:
+                log.exception("Refreshing the notices failed")
+            if self._closing.is_set():
+                return
+            if changed:
                 self.content_refreshed.emit()
+            if notices_changed:
+                self.notices_changed.emit()
 
         threading.Thread(target=work, daemon=True, name="treasure-data").start()
 
@@ -2875,6 +3093,8 @@ class MainWindow(QMainWindow):
     def _shut_down(self) -> None:
         self._closing.set()
         self.content_timer.stop()
+        self.backup_timer.stop()
+        self.hour_timer.stop()
         self.refresh_timer.stop()
         self.overlay_timer.stop()
         self.overlay.close()

@@ -293,14 +293,24 @@ class MatchPoster:
         if saved and isinstance(saved.get("queue"), list):
             for item in saved["queue"]:
                 try:
-                    self.queue.append({"chests": int(item["chests"]), "party": str(item.get("party", ""))})
-                except (KeyError, TypeError, ValueError):
+                    if isinstance(item.get("text"), str):
+                        self.queue.append({"text": item["text"][:300]})
+                    else:
+                        self.queue.append({"chests": int(item["chests"]), "party": str(item.get("party", ""))})
+                except (KeyError, TypeError, ValueError, AttributeError):
                     continue
             self.queue = self.queue[-self.MAX_QUEUE :]
 
     def add(self, chests: int, party: str = "") -> None:
         with self.lock:
             self.queue = (self.queue + [{"chests": chests, "party": party}])[-self.MAX_QUEUE :]
+            self._save()
+        self.wake.set()
+
+    def add_text(self, text: str) -> None:
+        """Queue a plain line (a treasure find), sent in order after the matches before it."""
+        with self.lock:
+            self.queue = (self.queue + [{"text": text[:300]}])[-self.MAX_QUEUE :]
             self._save()
         self.wake.set()
 
@@ -323,7 +333,7 @@ class MatchPoster:
                 params={"wait": "true"},
                 json={
                     "username": self.player,
-                    "content": format_match(item["chests"], item["party"]),
+                    "content": item["text"] if "text" in item else format_match(item["chests"], item["party"]),
                     "allowed_mentions": {"parse": []},
                 },
                 timeout=10,

@@ -55,7 +55,27 @@ def match_line(m: dict, clock: str) -> str:
     """One match as a short line, like 'Nov 14, 9:32 PM: 22 chests (3 broken)'."""
     word = "chest" if m["chests"] == 1 else "chests"
     broken = f" ({m['broken']} broken)" if m.get("broken") else ""
-    return f"{format_stamp(datetime.fromisoformat(m['start']), clock)}: {m['chests']:,} {word}{broken}"
+    found = len(m.get("treasures") or [])
+    treasure = f", {found} treasure{'s' if found != 1 else ''}" if found else ""
+    return f"{format_stamp(datetime.fromisoformat(m['start']), clock)}: {m['chests']:,} {word}{broken}{treasure}"
+
+
+def match_details(m: dict, clock: str = "auto") -> str:
+    """Everything the log knows about one match, as plain text."""
+    start, end = datetime.fromisoformat(m["start"]), datetime.fromisoformat(m["end"])
+    source = {"replay": "the replay", "import": "an import from another tracker"}.get(m.get("source"), "the screen")
+    lines = [f"Started {format_stamp(start, clock)}"]
+    minutes = round((end - start).total_seconds() / 60)
+    if source != "the screen" and minutes >= 1:
+        lines[0] += f", about {minutes} minute{'s' if minutes != 1 else ''} of chest searching"
+    lines.append(f"{m['chests']:,} chest{'s' if m['chests'] != 1 else ''}, counted from {source}")
+    if m.get("source") in ("replay", "import"):
+        lines.append(f"{m.get('opened', m['chests']):,} opened, {m.get('broken', 0):,} broken")
+    if m.get("kinds"):
+        lines += ["", "By type:"] + [f"  {name}: {n:,}" for name, n in sorted(m["kinds"].items(), key=lambda kv: -kv[1])]
+    if m.get("treasures"):
+        lines += ["", "Treasures:"] + [f"  {t['name']}" for t in m["treasures"]]
+    return "\n".join(lines)
 
 
 def render_html(data: ReportData, clock: str = "auto", generated: datetime | None = None) -> str:
