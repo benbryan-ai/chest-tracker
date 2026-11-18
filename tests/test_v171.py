@@ -60,3 +60,42 @@ def test_an_ampersand_in_a_prize_name_is_shown_as_is(window):
     kinds = [page.week.itemAt(i).widget().text() for i in range(page.week.count())]
     assert not any("_" in t for t in kinds)
     assert any("Vehicle && decal" in t for t in kinds) or not any("decal" in t for t in kinds)
+
+
+def share(window):
+    window.settings.set(webhook_url="https://discord.com/api/webhooks/1/x", player_name="Sam")
+
+
+def test_an_import_is_sent_to_the_group(window):
+    import importer
+    share(window)
+    window.sender.wake.clear()
+    window.apply_import(importer.ImportOffer("ChestCounter", "Sam", 60, [], 0))
+    assert window.sender.pending == 60
+
+
+def test_the_group_gap_is_the_difference_to_the_leaderboard(window):
+    share(window)
+    window.set_total(1000)
+    window.sender.pending = 0  # it was delivered
+    window.leaderboard_seen = ([("Sam", 400), ("Alex", 300)], 700)
+    assert window.group_gap() == 600
+    window.group.update_sync()
+    assert not window.group.sync_row.isHidden()
+    assert window.sync_group_total() == 600
+    assert window.sender.pending == 600
+
+
+def test_no_gap_is_offered_while_a_post_is_still_on_its_way(window):
+    share(window)
+    window.set_total(1000)
+    window.leaderboard_seen = ([("Sam", 400)], 400)
+    assert window.group_gap() is None  # the 1,000 hasn't been delivered yet, so syncing would count it twice
+
+
+def test_no_gap_when_you_are_not_on_the_board(window):
+    share(window)
+    window.leaderboard_seen = ([("Alex", 300)], 300)
+    assert window.group_gap() is None
+    window.leaderboard_seen = None
+    assert window.group_gap() is None

@@ -1664,6 +1664,17 @@ class GroupPage(QWidget):
         self.board = QVBoxLayout()
         self.board.setSpacing(2)
         layout.addLayout(self.board)
+        self.sync_row = QWidget()
+        sync = QHBoxLayout(self.sync_row)
+        sync.setContentsMargins(0, 6, 0, 0)
+        self.sync_text = label("", "muted", wrap=True)
+        sync.addWidget(self.sync_text, 1)
+        self.sync_button = QPushButton("Sync my total")
+        self.sync_button.setToolTip("Post the difference so the leaderboard matches your total.")
+        self.sync_button.clicked.connect(self.sync_now)
+        sync.addWidget(self.sync_button)
+        self.sync_row.hide()
+        layout.addWidget(self.sync_row)
         layout.addSpacing(14)
 
         bot_row = QHBoxLayout()
@@ -1753,6 +1764,23 @@ class GroupPage(QWidget):
         for rank, (name, count) in enumerate(rows, 1):
             self.board.addWidget(LeaderRow(rank, name, count, top, name.lower() == me))
         self.group_total.setText(f"{total:,} chests between you" if rows else "")
+        self.update_sync()
+
+    def update_sync(self) -> None:
+        """Offer to bring your leaderboard number in line with your total (edits, imports and past replays)."""
+        gap = self.window_.group_gap()
+        self.sync_row.setVisible(bool(gap))
+        if gap:
+            direction = "short" if gap > 0 else "too high"
+            self.sync_text.setText(
+                f"Your total is {self.window_.stats.total:,}, but the leaderboard has you {abs(gap):,} {direction}."
+            )
+
+    def sync_now(self) -> None:
+        gap = self.window_.sync_group_total()
+        if gap:
+            self.sync_row.hide()
+            self.sync_text.setText("")
 
 
 def clear_layout(layout) -> None:
@@ -2644,12 +2672,33 @@ class MainWindow(QMainWindow):
         self.settings.set(overlay_show_last=shown)
         self.overlay.set_last_visible(shown)
 
+    def share_change(self, amount: int) -> None:
+        """Tell the group about a change to the total that didn't come from opening a chest."""
+        if amount and self.settings["webhook_url"] and self.settings["player_name"]:
+            self.sender.add(amount)
+
+    def group_gap(self) -> int | None:
+        """How far your total is from yours on the leaderboard, if this app is the one running the bot."""
+        rows = self.leaderboard_seen[0] if self.leaderboard_seen else []
+        me = self.settings["player_name"].strip().lower()
+        if not me or self.sender.pending:  # nothing to compare, or a post is still on its way
+            return None
+        mine = next((count for name, count in rows if name.lower() == me), None)
+        return None if mine is None else self.stats.total - mine
+
+    def sync_group_total(self) -> int:
+        """Post the difference between your total and the leaderboard's. Returns it."""
+        gap = self.group_gap() or 0
+        self.share_change(gap)
+        return gap
+
     def set_total(self, new_total: int) -> int:
         """Make the lifetime total this number. Returns how much it changed. The change is kept so it can be undone."""
         changed = self.stats.adjust_total(new_total - self.stats.total)
         if changed:
             self.adjustments.add(changed, "hand", f"Total set to {self.stats.total:,}")
             log.info("Total changed by hand by %+d", changed)
+            self.share_change(changed)
         self._refresh_total()
         return changed
 
@@ -2657,7 +2706,8 @@ class MainWindow(QMainWindow):
         entry = self.adjustments.remove(entry_id)
         if entry is None:
             return
-        self.stats.adjust_total(-entry["chests"])
+        undone = self.stats.adjust_total(-entry["chests"])
+        self.share_change(undone)
         if entry["kind"] in ("import", "replay"):
             self.matches.remove_batch(entry["id"])
         if entry["kind"] == "replay":
@@ -2671,7 +2721,7 @@ class MainWindow(QMainWindow):
         if entry is None:
             return 0
         added = self.matches.add_imported(entry["id"], offer.matches)
-        self.stats.adjust_total(offer.chests)
+        self.share_change(self.stats.adjust_total(offer.chests))
         log.info("Imported %d chests and %d matches from %s", offer.chests, added, offer.source)
         self._refresh_total()
         return added
@@ -2681,6 +2731,7 @@ class MainWindow(QMainWindow):
         batch = uuid.uuid4().hex[:12]
         undo = self.matches.apply_backfill(batch, plan.new, plan.replaced)
         changed = self.stats.adjust_total(plan.total_change)
+        self.share_change(changed)
         note = (f"Counted past replays since {plan.since.date().isoformat()}: "
                 f"{len(plan.new)} added, {len(plan.replaced) - plan.refreshed} corrected, {plan.refreshed} filled in")
         self.adjustments.add(changed, "replay", note, undo=undo, entry_id=batch)
@@ -2692,6 +2743,7 @@ class MainWindow(QMainWindow):
         self.overlay.set_count(self.stats.total)
         self.tracker.stage.set_count(self.stats.total)
         self._show_stats()
+        self.group.update_sync()
 
     # --- notices and replay health ---
 

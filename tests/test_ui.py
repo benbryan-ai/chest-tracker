@@ -761,9 +761,16 @@ def test_setting_the_same_total_records_nothing(window):
     assert window.adjustments.entries == []
 
 
-def test_a_typed_total_is_not_sent_to_discord(window):
+def test_a_typed_total_is_sent_to_the_group_and_undo_takes_it_back(window):
     share_to_discord(window)
     window.sender.wake.clear()
+    window.set_total(500)
+    assert window.sender.pending == 500
+    window.undo_adjustment(window.adjustments.entries[-1]["id"])
+    assert window.sender.pending == 0
+
+
+def test_a_typed_total_is_not_sent_without_a_name_and_webhook(window):
     window.set_total(500)
     assert window.sender.pending == 0
 

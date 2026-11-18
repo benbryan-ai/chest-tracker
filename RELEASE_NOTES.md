@@ -3,6 +3,16 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.7.2
+
+Fixes the group leaderboard missing changes you make to your own total. If you're updating from an older version, the notes for v1.7.1 (below) also apply: they cover everything since v1.5.0.
+
+- **Your group total now follows your edits.** Edit total, importing from another tracker, and *Count my past replays* now post their change to your group's leaderboard, and undoing one posts the reverse. Before, only chests counted while playing reached the group.
+- **Sync my total.** If your leaderboard number is already out of step (for example you added chests before this update), the Group tab shows how far off it is with a **Sync my total** button that posts the difference. It appears on the PC running the bot. Anyone else can ask the bot's owner to use `/add` with their name and the missing amount.
+- A fix to the Treasures tab: prize names containing "&" were shown with an underlined letter instead of the "&".
+- A fix to the Group tab: the "no chests on the leaderboard yet" message could stay on screen behind the rows.
+- The app now looks for updates in the new project address, `benbryan-ai/chest-tracker`. Versions before 1.7.1 can't update themselves from here, so download this once by hand.
+
 ## v1.7.1
 
 This release also includes everything from v1.6.0, v1.6.1 and v1.7.0, listed below.
