@@ -68,6 +68,7 @@ def main(out: Path) -> None:
     (folder / "settings.json").write_text(json.dumps({
         "player_name": "Alex", "webhook_url": "https://discord.com/api/webhooks/1/x", "remove_key": "F10",
         "replay_folder": "C:/Users/Alex/AppData/Local/FortniteGame/Saved/Demos",
+        "daily_goal": 50, "match_goal": 15,
     }))
     win = ui.MainWindow(folder, QIcon(str(ROOT / "assets" / "icon.png")))
     win.content_store.get = lambda *a, **k: (_ for _ in ()).throw(OSError("offline"))

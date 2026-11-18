@@ -413,6 +413,30 @@ class TallyMarks(QWidget):
                 p.drawLine(QPointF(x - 4, top + 17), QPointF(x + 28, top + 4))
 
 
+class GoalBar(QWidget):
+    """A thin bar that fills towards a goal and turns mint when it's reached."""
+
+    def __init__(self):
+        super().__init__()
+        self.value = 0.0
+        self.setFixedHeight(8)
+
+    def set_value(self, value: float) -> None:
+        self.value = max(0.0, min(1.0, value))
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        track = QRectF(0, 1, self.width(), 6)
+        painter.setBrush(QColor(LINE))
+        painter.drawRoundedRect(track, 3, 3)
+        if self.value > 0:
+            painter.setBrush(QColor(MINT if self.value >= 1 else GOLD))
+            painter.drawRoundedRect(QRectF(0, 1, max(6.0, self.width() * self.value), 6), 3, 3)
+
+
 class MatchMeter(QWidget):
     """Shows the live prompt match. Drag the marker, or use arrow keys, to set the required match."""
 

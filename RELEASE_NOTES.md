@@ -3,6 +3,16 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.8.0
+
+Goals. If you're updating from an older version, the notes for v1.7.2 and v1.7.1 (below) also apply.
+
+- **Daily goal.** Set a chests-per-day target in **Settings**. The Tracker tab shows a progress bar under today's count, plus your streak (days in a row that reached the goal).
+- **Per-match goal.** The same for each match, shown under "This match".
+- **On the overlay.** Thin progress bars along the bottom of the overlay show how far through the match goal and daily goal you are. They only appear when a goal is set.
+- **Goal reached.** A line appears in Recent activity, and a double chime plays (it can be turned off in **Settings**). Each goal is announced once.
+- The goal boxes in Settings now match the dark theme.
+
 ## v1.7.2
 
 Fixes the group leaderboard missing changes you make to your own total. If you're updating from an older version, the notes for v1.7.1 (below) also apply: they cover everything since v1.5.0.

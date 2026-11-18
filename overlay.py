@@ -13,6 +13,7 @@ from widgets import ASH, BONE, DUSK, EMBER, GOLD, GOLD_LIGHT, LINE, MINT
 BASE_WIDTH, BASE_HEIGHT = 220, 76
 EXTRA_HEIGHT = 20  # the extra row for the last match and the session
 HOUR_HEIGHT = 18  # the row for a Treasure Hour, when there is one to mention
+GOAL_HEIGHT = 14  # the two thin goal bars, when a goal is set
 MIN_SCALE, MAX_SCALE = 0.7, 2.0
 MIN_OPACITY, MAX_OPACITY = 0.3, 1.0
 
@@ -52,6 +53,8 @@ class ChestOverlay(QWidget):
         self.show_last = True
         self.show_hour = True
         self.hour_text = ""
+        self.day_goal: float | None = None  # how far through the daily goal (None = no goal)
+        self.match_goal: float | None = None
         self.last_match: int | None = None
         self.session = 0
         self.session_matches = 0
@@ -102,11 +105,21 @@ class ChestOverlay(QWidget):
         self._resize()
         self.update()
 
+    def set_goals(self, day: float | None, match: float | None) -> None:
+        if (day is None, match is None) != (self.day_goal is None, self.match_goal is None):
+            self.day_goal, self.match_goal = day, match
+            self._resize()
+        self.day_goal, self.match_goal = day, match
+        self.update()
+
+    def _goal_row(self) -> bool:
+        return self.day_goal is not None or self.match_goal is not None
+
     def _hour_row(self) -> bool:
         return self.show_hour and bool(self.hour_text)
 
     def _height(self) -> int:
-        return BASE_HEIGHT + (EXTRA_HEIGHT if self.show_last else 0) + (HOUR_HEIGHT if self._hour_row() else 0)
+        return BASE_HEIGHT + (EXTRA_HEIGHT if self.show_last else 0) + (HOUR_HEIGHT if self._hour_row() else 0) + (GOAL_HEIGHT if self._goal_row() else 0)
 
     def _resize(self) -> None:
         self.setFixedSize(round(BASE_WIDTH * self.scale), round(self._height() * self.scale))
@@ -243,6 +256,18 @@ class ChestOverlay(QWidget):
             painter.setPen(QColor(GOLD_LIGHT if self.hour_text.startswith("TREASURE") else ASH))
             painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
             painter.drawText(QRectF(14, top, BASE_WIDTH - 28, 18), Qt.AlignmentFlag.AlignLeft, self.hour_text)
+
+        if self._goal_row():
+            bottom = self._height() - 9
+            painter.setPen(Qt.PenStyle.NoPen)
+            bars = [(f, label) for f, label in ((self.match_goal, "match"), (self.day_goal, "day")) if f is not None]
+            for index, (done, _) in enumerate(bars):
+                top = bottom - (len(bars) - 1 - index) * 6 - 3
+                painter.setBrush(QColor(LINE))
+                painter.drawRoundedRect(QRectF(14, top, BASE_WIDTH - 28, 3), 1.5, 1.5)
+                if done > 0:
+                    painter.setBrush(QColor(MINT if done >= 1 else GOLD))
+                    painter.drawRoundedRect(QRectF(14, top, max(3.0, (BASE_WIDTH - 28) * done), 3), 1.5, 1.5)
 
         if self._flash > 0:
             painter.setPen(Qt.PenStyle.NoPen)

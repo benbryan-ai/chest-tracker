@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -19,7 +19,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea,
-    QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
+    QSizePolicy, QSlider, QSpinBox, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
 from bot import BotRunner
@@ -41,6 +41,7 @@ import notices
 import report
 import startup
 import treasures
+import goals
 import timefmt
 import updater
 from adjustments import Adjustments
@@ -54,7 +55,7 @@ from watcher import (
 )
 from widgets import (
     ASH, BONE, DUSK, EMBER, GOLD, GOLD_DEEP, GOLD_LIGHT, LINE, MINT, NIGHT, RAISED,
-    ChestStage, LeaderRow, MatchMeter, StepBadge, TallyMarks,
+    ChestStage, GoalBar, LeaderRow, MatchMeter, StepBadge, TallyMarks,
 )
 
 log = logging.getLogger("chest-tracker")
@@ -92,6 +93,11 @@ QLineEdit:hover {{ border-color: {ASH}; }}
 QLineEdit:focus {{ border: 1px solid {GOLD}; }}
 QComboBox {{ background: {NIGHT}; border: 1px solid {LINE}; border-radius: 5px; padding: 8px 10px; min-height: 20px; }}
 QComboBox:hover {{ border-color: {ASH}; }}
+QSpinBox {{ background: {NIGHT}; border: 1px solid {LINE}; border-radius: 5px; padding: 8px 10px; min-width: 70px;
+           selection-background-color: {GOLD}; selection-color: {NIGHT}; }}
+QSpinBox:hover {{ border-color: {ASH}; }}
+QSpinBox:focus {{ border: 1px solid {GOLD}; }}
+QSpinBox::up-button, QSpinBox::down-button {{ width: 0; border: none; }}
 QComboBox:focus {{ border: 1px solid {GOLD}; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox QAbstractItemView {{ background: {DUSK}; border: 1px solid {LINE}; selection-background-color: #2E2916; }}
@@ -751,6 +757,12 @@ class TrackerPage(QWidget):
         today_row.addWidget(self.tally, 0, Qt.AlignmentFlag.AlignVCenter)
         today_layout.addLayout(today_row)
         today_layout.addWidget(label("chests opened today", "muted"))
+        self.day_goal = label("", "small")
+        self.day_bar = GoalBar()
+        today_layout.addWidget(self.day_goal)
+        today_layout.addWidget(self.day_bar)
+        self.day_goal.hide()
+        self.day_bar.hide()
         side.addWidget(today_card)
 
         session_card = QFrame()
@@ -781,6 +793,12 @@ class TrackerPage(QWidget):
         match_row.addWidget(label("chests this match", "muted"), 0, Qt.AlignmentFlag.AlignBottom)
         match_row.addStretch(1)
         match_layout.addLayout(match_row)
+        self.match_goal = label("", "small")
+        self.match_bar = GoalBar()
+        match_layout.addWidget(self.match_goal)
+        match_layout.addWidget(self.match_bar)
+        self.match_goal.hide()
+        self.match_bar.hide()
         self.last_match = label("", "small", wrap=True)
         match_layout.addWidget(self.last_match)
         self.match_summary = label("No finished matches yet", "small", wrap=True)
@@ -831,6 +849,21 @@ class TrackerPage(QWidget):
         self.tally.set_count(stats.today)
         self.session.setText(f"{stats.session:,}")
         self.remove.setEnabled(stats.total > 0)
+
+    def show_goals(self, day_goal: int, today: int, streak: int, match_goal: int, match: int) -> None:
+        """The progress bars under today's and this match's counts. They stay hidden with no goal set."""
+        for goal, text, bar, line in (
+            (day_goal, today, self.day_bar, self.day_goal),
+            (match_goal, match, self.match_bar, self.match_goal),
+        ):
+            bar.setVisible(goal > 0)
+            line.setVisible(goal > 0)
+            bar.set_value(goals.fraction(text, goal))
+        shown = goals.progress_text(today, day_goal, "today")
+        if day_goal and streak > 1:
+            shown += f" · {streak}-day streak"
+        self.day_goal.setText(shown)
+        self.match_goal.setText(goals.progress_text(match, match_goal, "chests"))
 
     def show_matches(self, matches: MatchLog) -> None:
         self.match_count.setText(f"{matches.current:,}")
@@ -1930,6 +1963,31 @@ class SettingsPage(QWidget):
         layout.addLayout(row)
 
         layout.addSpacing(8)
+        layout.addWidget(label("Goals", "subheading"))
+        layout.addWidget(label(
+            "Set a target for each day and for each match. Progress shows on the Tracker tab and on the overlay. "
+            "Leave a goal at 0 for none.", "muted", wrap=True,
+        ))
+        goals_row = QHBoxLayout()
+        self.day_goal_box = QSpinBox()
+        self.match_goal_box = QSpinBox()
+        for box, key, text in ((self.day_goal_box, "daily_goal", "Chests per day"),
+                               (self.match_goal_box, "match_goal", "Chests per match")):
+            box.setRange(0, goals.MAX_GOAL)
+            box.setValue(goals.clean_goal(settings[key]))
+            box.setSpecialValueText("None")
+            box.valueChanged.connect(lambda value, k=key: self.save_goal(k, value))
+            goals_row.addWidget(label(text, "small"))
+            goals_row.addWidget(box)
+            goals_row.addSpacing(14)
+        goals_row.addStretch(1)
+        layout.addLayout(goals_row)
+        self.goal_sound = QCheckBox("Play a double chime when I reach a goal")
+        self.goal_sound.setChecked(bool(settings["goal_sound"]))
+        self.goal_sound.toggled.connect(lambda on: window.settings.set(goal_sound=on))
+        layout.addWidget(self.goal_sound)
+
+        layout.addSpacing(8)
         layout.addWidget(label("Clock", "subheading"))
         self.clock = QComboBox()
         for value, name in timefmt.CLOCKS:
@@ -2042,6 +2100,10 @@ class SettingsPage(QWidget):
     def use_default(self) -> None:
         self.replay_folder.setText("")
         self.save_folder()
+
+    def save_goal(self, key: str, value: int) -> None:
+        self.window_.settings.set(**{key: value})
+        self.window_._show_goals()
 
     def save_clock(self) -> None:
         self.window_.settings.set(clock_format=self.clock.currentData())
@@ -2864,7 +2926,33 @@ class MainWindow(QMainWindow):
         if self.stack.currentWidget() in (self.report, self.treasures_page):
             self.stack.currentWidget().refresh()
         self.tracker.show_stats(self.stats)
+        self._show_goals()
         self.tray.setToolTip(f"Chest Tracker: {self.stats.total:,} chests")
+
+    def _show_goals(self) -> None:
+        day_goal = goals.clean_goal(self.settings["daily_goal"])
+        match_goal = goals.clean_goal(self.settings["match_goal"])
+        streak = 0
+        if day_goal:
+            streak = goals.streak(goals.per_day(self.matches.history), day_goal, date.today(), self.stats.today)
+        self.tracker.show_goals(day_goal, self.stats.today, streak, match_goal, self.matches.current)
+        self.overlay.set_goals(
+            goals.fraction(self.stats.today, day_goal) if day_goal else None,
+            goals.fraction(self.matches.current, match_goal) if match_goal else None,
+        )
+
+    def _celebrate_goals(self, before_day: int, before_match: int) -> None:
+        """A line in the activity list and a sound when this chest took you to a goal."""
+        hit = []
+        if goals.crossed(before_day, self.stats.today, goals.clean_goal(self.settings["daily_goal"])):
+            hit.append(f"Daily goal reached: {self.stats.today:,} chests today")
+        if goals.crossed(before_match, self.matches.current, goals.clean_goal(self.settings["match_goal"])):
+            hit.append(f"Match goal reached: {self.matches.current:,} chests")
+        for line in hit:
+            self.tracker.log(line, MINT)
+        if hit and self.settings["goal_sound"]:
+            self.play_chime()
+            QTimer.singleShot(260, self.play_chime)  # twice, so it's different from a normal chest
 
     def go_to(self, index: int) -> None:
         self.nav.button(index).setChecked(True)
@@ -2970,6 +3058,7 @@ class MainWindow(QMainWindow):
             self.tracker.log("Search cancelled, not counted", ASH)
 
     def record_chest(self, amount: int, source: str) -> None:
+        before_day, before_match = self.stats.today, self.matches.current
         changed = self.stats.add(amount)  # 0 when there was nothing left to take off
         if source == "detected" and changed > 0 and self.settings["chime_enabled"]:
             self.play_chime()
@@ -2990,6 +3079,8 @@ class MainWindow(QMainWindow):
             self.tracker.log("Removed a chest", ASH)
         else:
             self.tracker.log("Nothing to remove, the count is already 0", ASH)
+        if changed > 0:
+            self._celebrate_goals(before_day, before_match)
 
     def play_chime(self, volume: float | None = None) -> None:
         self.chime.play(self.settings["chime_volume"] if volume is None else volume)

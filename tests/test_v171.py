@@ -9,7 +9,7 @@ import treasures
 from marks import TreasureMarks
 from test_content import BUNDLED
 from content import parse
-from test_ui import *  # noqa: F401,F403  (window fixture)
+from test_ui import app, window  # noqa: F401  (the fixtures)
 
 
 def test_marks_persist_and_toggle(tmp_path):
