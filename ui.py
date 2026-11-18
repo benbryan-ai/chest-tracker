@@ -1550,6 +1550,18 @@ class FortniteStatsPage(QWidget):
         fields.addWidget(self.refresh, 2, 3)
         layout.addWidget(form)
 
+        self.share = QCheckBox("Share my stats with the group")
+        self.share.setToolTip("Sends your overall lifetime and season numbers to your group's Discord channel.")
+        self.share.setChecked(bool(settings["share_fortnite"]))
+        self.share.toggled.connect(self._share_toggled)
+        layout.addWidget(self.share)
+        layout.addWidget(label(
+            "Sends your overall lifetime and current-season wins, eliminations, matches, K/D and time played to "
+            "your group's Discord channel (the same one as your chest counts), where they show on the "
+            "Leaderboards tab. Your API key and Epic name are never sent. It needs your player name and webhook "
+            "set up in Setup, and refreshes every few hours while the app is open.", "muted", wrap=True,
+        ))
+
         self.status = label("Enter your key and a player name, then select Refresh stats.", "small", wrap=True)
         layout.addWidget(self.status)
         self.profile_title = label("No stats loaded yet", "subheading")
@@ -1616,6 +1628,11 @@ class FortniteStatsPage(QWidget):
             values[key] = value
         grid.addWidget(card, 0, column)
         return values
+
+    def _share_toggled(self, on: bool) -> None:
+        self.window_.settings.set(share_fortnite=on)
+        if on:
+            self.window_.share_fortnite_stats()
 
     def _fetch(self) -> None:
         key = self.api_key.text().strip()
@@ -1697,6 +1714,7 @@ class GroupPage(QWidget):
         layout.addLayout(header)
 
         self.board_data: dict[str, list[dict]] = {}
+        self.fortnite_data: dict[str, list[dict]] = {}
         pick = QHBoxLayout()
         self.period_box = QComboBox()
         for key, text in boards.PERIODS:
@@ -1815,9 +1833,10 @@ class GroupPage(QWidget):
             match_channel_id=self.match_channel.text().strip(),
         )
 
-    def show_board(self, data: dict[str, list[dict]], total: int) -> None:
-        """New numbers from the bot's database: one list of players per period."""
+    def show_board(self, data: dict[str, list[dict]], total: int, fortnite: dict[str, list[dict]] | None = None) -> None:
+        """New numbers from the bot's database: match stats per period, and Fortnite stats per window."""
         self.board_data = data
+        self.fortnite_data = fortnite or {}
         self.group_total.setText(f"{total:,} chests between you" if total else "")
         self.render()
         self.update_sync()
@@ -1825,13 +1844,19 @@ class GroupPage(QWidget):
     def render(self) -> None:
         period = self.period_box.currentData()
         category = self.category_box.currentData()
-        rows = self.board_data.get(period, [])
+        rows = boards.rows_for(category, period, self.board_data.get(period, []), self.fortnite_data)
         ranked = boards.rank(rows, category)
         me = self.window_.settings["player_name"].strip().lower()
         clear_layout(self.board)
         if not ranked:
             note = ""
-            if category == "average":
+            if boards.is_fortnite(category):
+                note = (" Fortnite stats cover this season and all time, and appear when players turn on "
+                        "\"Share my stats with the group\" in their Fortnite Stats tab.") if period == "week" else (
+                        " They appear when players turn on \"Share my stats with the group\" in their "
+                        "Fortnite Stats tab. K/D and win rate need "
+                        f"{boards.MIN_FORTNITE_MATCHES} matches.")
+            elif category == "average":
                 note = f" Averages need {boards.MIN_MATCHES_FOR_AVERAGE} matches."
             elif period != "all" and category != "chests":
                 note = " Match stats come from each player's app (version 1.9.0 or newer)."
@@ -1849,6 +1874,8 @@ class GroupPage(QWidget):
 
     GLANCE = (("matches", "Matches"), ("chests", "Chests"), ("best", "Best"), ("average", "Avg"),
               ("opened", "Opened"), ("broken", "Broken"), ("treasures", "Treasures"))
+    GLANCE_FORTNITE = (("fn_wins", "Wins"), ("fn_winrate", "Win rate"), ("fn_kd", "K/D"),
+                       ("fn_kills", "Eliminations"), ("fn_matches", "Matches"))
 
     def _render_glance(self, rows: list[dict], category: str, me: str) -> None:
         """A small table so everyone's numbers can be compared side by side."""
@@ -1857,15 +1884,16 @@ class GroupPage(QWidget):
         self.glance_title.setVisible(bool(shown_rows))
         if not shown_rows:
             return
+        columns = self.GLANCE_FORTNITE if boards.is_fortnite(category) else self.GLANCE
         self.glance.addWidget(label("", "small"), 0, 0)
-        for column, (_, title) in enumerate(self.GLANCE, 1):
+        for column, (_, title) in enumerate(columns, 1):
             head = label(title, "small")
             head.setAlignment(Qt.AlignmentFlag.AlignRight)
             self.glance.addWidget(head, 0, column)
         for line, row in enumerate(shown_rows, 1):
             mine = row["name"].lower() == me
             self.glance.addWidget(label(row["name"] + (" (you)" if mine else ""), "" if mine else "small"), line, 0)
-            for column, (key, _) in enumerate(self.GLANCE, 1):
+            for column, (key, _) in enumerate(columns, 1):
                 cell = label(boards.shown(row, key) if key != "average" or row["matches"] else "-", "" if mine else "small")
                 cell.setAlignment(Qt.AlignmentFlag.AlignRight)
                 self.glance.addWidget(cell, line, column)
@@ -2354,6 +2382,7 @@ class TreasuresPage(QWidget):
 
 class MainWindow(QMainWindow):
     chest = Signal(int, str)
+    fortnite_lines = Signal(object)
     attempt = Signal(str)
     engine_state = Signal(str)
     match_score = Signal(float)
@@ -2516,6 +2545,11 @@ class MainWindow(QMainWindow):
         self.backup_timer = QTimer(self)
         self.backup_timer.timeout.connect(self.run_auto_backup)
         self.backup_timer.start(6 * 3600 * 1000)
+        QTimer.singleShot(45_000, self.share_fortnite_stats)
+        self.fortnite_timer = QTimer(self)
+        self.fortnite_timer.timeout.connect(self.share_fortnite_stats)
+        self.fortnite_timer.start(6 * 3600 * 1000)
+        self.fortnite_lines.connect(self._post_fortnite_lines)
         QTimer.singleShot(6000, self.refresh_content)
         self.content_timer = QTimer(self)
         self.content_timer.timeout.connect(self.refresh_content)
@@ -2789,6 +2823,44 @@ class MainWindow(QMainWindow):
         for line in lines[-StatsPoster.MAX_QUEUE:]:
             self.stats_poster.add_text(line)
         return len(lines[-StatsPoster.MAX_QUEUE:])
+
+    def share_fortnite_stats(self) -> None:
+        """If sharing is on, look up your own stats and send the ones that changed to the group."""
+        s = self.settings
+        if not (s["share_fortnite"] and s["fortnite_api_key"] and s["fortnite_account_name"]
+                and s["webhook_url"] and s["player_name"]):
+            return
+        key, name, kind = s["fortnite_api_key"], s["fortnite_account_name"], s["fortnite_account_type"]
+
+        def work() -> None:
+            lines = {}
+            for window in ("lifetime", "season"):
+                try:
+                    overall = fetch_stats(key, name, kind, window)["stats"]["overall"]
+                except FortniteStatsError as error:
+                    log.info("Couldn't look up %s stats to share: %s", window, error)
+                    continue
+                except Exception as error:
+                    log.warning("Sharing Fortnite stats failed: %s", error.__class__.__name__)
+                    continue
+                if overall:
+                    lines[window] = protocol.format_fortnite_stats(window, overall)
+            if lines and not self._closing.is_set():
+                self.fortnite_lines.emit(lines)
+
+        threading.Thread(target=work, daemon=True, name="fortnite-share").start()
+
+    def _post_fortnite_lines(self, lines: dict) -> None:
+        posted = dict(self.settings["fortnite_posted"])
+        sent = 0
+        for window, line in lines.items():
+            if posted.get(window) != line:  # only when your numbers have changed
+                self.stats_poster.add_text(line)
+                posted[window] = line
+                sent += 1
+        if sent:
+            self.settings.set(fortnite_posted=posted)
+            self.fortnite_stats.status.setText("Shared your stats with the group.")
 
     def _post_treasures(self, finds: list) -> None:
         """One line per treasure to the match channel, after the match's own post."""
@@ -3361,7 +3433,7 @@ class MainWindow(QMainWindow):
         self.stats.roll_over()
         self._show_stats()
         path = self.folder / "chests.db"
-        rows, total, data = [], 0, {}
+        rows, total, data, fortnite = [], 0, {}, {}
         if path.exists():
             store = Store.read_only(path)
             try:
@@ -3370,15 +3442,16 @@ class MainWindow(QMainWindow):
                 for key, _ in boards.PERIODS:
                     since = boards.period_start(key, now, self.settings["season_start"])
                     data[key] = store.player_stats(None if key == "all" else (since or 0))
+                fortnite = {w: store.fortnite_stats(w) for w in ("lifetime", "season")}
             except sqlite3.Error:  # the bot is creating the database right now
-                data = {}
+                data, fortnite = {}, {}
             finally:
                 store.db.close()
-        seen = (rows, total, data)
+        seen = (rows, total, data, fortnite)
         if seen != self._board_state:  # rebuild only when something changed
             self._board_state = seen
             self.leaderboard_seen = (rows, total)
-            self.group.show_board(data, total)
+            self.group.show_board(data, total, fortnite)
 
     def closeEvent(self, event) -> None:
         if self._overlay_positioning:

@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 
 import boards
-from protocol import parse_delta, parse_match, parse_match_stats
+from protocol import parse_delta, parse_fortnite_stats, parse_match, parse_match_stats
 from reports import GroupReports, format_report
 from store import Store
 
@@ -25,6 +25,10 @@ def ingest(store: Store, message) -> bool:
         return False
     amount = parse_delta(message.content)
     if amount is None:
+        shared = parse_fortnite_stats(message.content)
+        if shared is not None:
+            store.record_fortnite(message.author.name, *shared)
+            return True
         stats = parse_match_stats(message.content)
         if stats is None:
             return False
@@ -141,8 +145,12 @@ def register_commands(tree: app_commands.CommandTree, store: Store, season_start
     async def leaderboard(interaction: discord.Interaction, period: str = "week", category: str = "chests"):
         since = boards.period_start(period, datetime.now(), season_start)
         rows = store.player_stats(None if period == "all" else since if since is not None else 0)
+        fortnite = {w: store.fortnite_stats(w) for w in ("lifetime", "season")}
         await interaction.response.send_message(
-            boards.format_board(rows, period, category, escape=discord.utils.escape_markdown)
+            boards.format_board(
+                boards.rows_for(category, period, rows, fortnite), period, category,
+                escape=discord.utils.escape_markdown,
+            )
         )
 
     @tree.command(name="add", description="Correct a count (use a negative number to remove)")

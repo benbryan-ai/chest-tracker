@@ -3,6 +3,15 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.10.0
+
+Fortnite stats on the leaderboards. If you're updating from an older version, the notes for v1.9.0 and the ones before it (below) also apply.
+
+- **Compare Fortnite stats.** The Leaderboards tab has four new categories: Fortnite wins, eliminations, K/D and win rate, with the same side-by-side table. They cover **This season** (Fortnite's own season) and **All time**; Fortnite doesn't have a weekly number. K/D and win rate need 10 matches to rank.
+- **It's opt-in.** On the Fortnite Stats tab, tick **Share my stats with the group**. Your app then looks up your own overall numbers with your own Fortnite-API key and sends them to your group's channel every few hours while the app is open (only when they've changed). Your key and Epic name are never sent, and anyone who doesn't tick it simply doesn't appear on those boards.
+- **`/leaderboard` in Discord** understands the new categories too.
+- The bot must be updated by the person running it, and each player updates their own app to share. Players whose Fortnite stats aren't public can't be looked up by Fortnite-API, so they won't show.
+
 ## v1.9.0
 
 Leaderboards. If you're updating from an older version, the notes for v1.8.0, v1.7.2 and v1.7.1 (below) also apply.

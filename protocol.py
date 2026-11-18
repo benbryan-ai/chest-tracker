@@ -107,6 +107,40 @@ def parse_match_stats(content: str) -> tuple[int, int, int, int, int] | None:
     return start, chests, opened, broken, treasures
 
 
+# --- Fortnite stats: a player's own lifetime or season numbers, shared so the group can compare ---
+
+_FORTNITE_PATTERN = re.compile(
+    r"\U0001F396\uFE0F Fortnite (lifetime|season): (\d+) wins? · (\d+) kills? · (\d+) matches · "
+    r"(\d{1,3}(?:\.\d{1,2})?) K/D · (\d+) minutes"
+)
+MAX_FORTNITE = 10_000_000
+
+
+def format_fortnite_stats(window: str, row: dict) -> str:
+    """One line of a player's overall Battle Royale numbers ("lifetime" or "season")."""
+    def whole(key: str) -> int:
+        return max(0, min(MAX_FORTNITE, int(row.get(key) or 0)))
+
+    kd = max(0.0, min(999.0, float(row.get("kd") or 0)))
+    return (
+        f"\U0001F396\uFE0F Fortnite {window}: {whole('wins')} wins · {whole('kills')} kills · "
+        f"{whole('matches')} matches · {kd:.2f} K/D · {whole('minutesPlayed')} minutes"
+    )
+
+
+def parse_fortnite_stats(content: str) -> tuple[str, int, int, int, float, int] | None:
+    """(window, wins, kills, matches, kd, minutes) from a Fortnite stats line, or None for anything else."""
+    found = _FORTNITE_PATTERN.fullmatch(content.strip())
+    if not found:
+        return None
+    window = found.group(1)
+    wins, kills, matches = int(found.group(2)), int(found.group(3)), int(found.group(4))
+    kd, minutes = float(found.group(5)), int(found.group(6))
+    if max(wins, kills, matches, minutes) > MAX_FORTNITE or wins > matches:
+        return None
+    return window, wins, kills, matches, kd, minutes
+
+
 def format_match(chests: int, party: str = "") -> str:
     text = f"\U0001F3AE {chests} chest{'' if chests == 1 else 's'} this match"
     party = normalize_party(party)

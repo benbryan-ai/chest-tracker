@@ -57,6 +57,8 @@ DEFAULTS = {
     "fortnite_account_type": "epic",
     "fortnite_stats_window": "lifetime",
     "fortnite_stats_cache": {},
+    "share_fortnite": False,
+    "fortnite_posted": {},
 }
 
 

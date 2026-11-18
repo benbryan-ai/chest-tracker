@@ -27,6 +27,16 @@ class Store:
                 treasures INTEGER NOT NULL,
                 UNIQUE (player, start)
             );
+            CREATE TABLE IF NOT EXISTS fortnite (
+                player TEXT NOT NULL COLLATE NOCASE,
+                window TEXT NOT NULL,
+                wins INTEGER NOT NULL,
+                kills INTEGER NOT NULL,
+                matches INTEGER NOT NULL,
+                kd REAL NOT NULL,
+                minutes INTEGER NOT NULL,
+                PRIMARY KEY (player, window)
+            );
             """
         )
         self.db.commit()
@@ -59,6 +69,29 @@ class Store:
             (player, start, chests, opened, broken, treasures),
         )
         self.db.commit()
+
+    def record_fortnite(self, player: str, window: str, wins: int, kills: int, matches: int, kd: float,
+                        minutes: int) -> None:
+        """Keep a player's latest Fortnite numbers for a window ("lifetime" or "season")."""
+        self.db.execute(
+            """
+            INSERT INTO fortnite (player, window, wins, kills, matches, kd, minutes) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (player, window) DO UPDATE SET wins = excluded.wins, kills = excluded.kills,
+                matches = excluded.matches, kd = excluded.kd, minutes = excluded.minutes
+            """,
+            (player, window, wins, kills, matches, kd, minutes),
+        )
+        self.db.commit()
+
+    def fortnite_stats(self, window: str) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT player, wins, kills, matches, kd, minutes FROM fortnite WHERE window = ?", (window,)
+        ).fetchall()
+        return [
+            {"name": name, "wins": wins, "kills": kills, "matches": matches, "kd": kd, "minutes": minutes,
+             "winrate": (100.0 * wins / matches) if matches else 0.0}
+            for name, wins, kills, matches, kd, minutes in rows
+        ]
 
     def player_stats(self, since: int | None = None) -> list[dict]:
         """Everyone's numbers since a Unix time (None = all time), one row per player.
@@ -137,5 +170,6 @@ class Store:
     def reset_player(self, player: str) -> int:
         cursor = self.db.execute("DELETE FROM events WHERE player = ?", (player,))
         self.db.execute("DELETE FROM matches WHERE player = ?", (player,))
+        self.db.execute("DELETE FROM fortnite WHERE player = ?", (player,))
         self.db.commit()
         return cursor.rowcount
