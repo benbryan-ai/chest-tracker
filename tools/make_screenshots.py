@@ -7,7 +7,7 @@ import os
 import shutil
 import sys
 import tempfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -108,6 +108,10 @@ def main(out: Path) -> None:
             app.processEvents()
         win.setFocus()
         win.grab().save(str(out / f"{name}.png"))
+    import sharecard
+    import sharecard_render
+    card = sharecard.collect(win.matches.history, "last7", date.today(), "2026-11-01", "Alex", 30, win.stats.today)
+    sharecard_render.render(card).save(str(out / "card.png"))
     win._shut_down()
     shutil.rmtree(folder, ignore_errors=True)
 

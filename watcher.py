@@ -381,6 +381,29 @@ class StatsPoster(MatchPoster):
     MAX_QUEUE = 300
 
 
+def post_image(url: str, player: str, png: bytes, filename: str = "chest-tracker.png") -> tuple[bool, str]:
+    """Upload a picture to a Discord webhook. Returns (worked, a message for the player)."""
+    if not is_webhook_url(url):
+        return False, "That doesn't look like a Discord webhook URL."
+    if len(png) > 8_000_000:
+        return False, "The picture is too big for Discord."
+    try:
+        response = requests.post(
+            url,
+            data={"payload_json": json.dumps({"username": player or "Chest Tracker", "allowed_mentions": {"parse": []}})},
+            files={"file": (filename, png, "image/png")},
+            timeout=30,
+            allow_redirects=False,
+        )
+    except requests.RequestException:
+        return False, "Couldn't reach Discord. Check your internet connection."
+    if response.ok:
+        return True, "Posted to Discord."
+    if response.status_code == 429:
+        return False, "Discord asked us to slow down. Try again in a moment."
+    return False, "Discord refused the picture. Check that the webhook still exists."
+
+
 def check_webhook(url: str) -> tuple[bool, str]:
     """Check a webhook exists without posting anything in the channel."""
     if not is_webhook_url(url):

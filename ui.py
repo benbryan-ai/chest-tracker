@@ -43,6 +43,8 @@ import startup
 import treasures
 import boards
 import goals
+import sharecard
+import sharecard_render
 import protocol
 import timefmt
 import updater
@@ -52,7 +54,7 @@ from version import VERSION
 from settings import Settings, Stats
 from store import Store
 from watcher import (
-    VK_F8, VK_F9, VK_F10, KeyEdge, MatchPoster, Sender, StatsPoster, WatchEngine, capture_focused_screen, check_webhook, fortnite_focused,
+    VK_F8, VK_F9, VK_F10, KeyEdge, MatchPoster, Sender, StatsPoster, post_image, WatchEngine, capture_focused_screen, check_webhook, fortnite_focused,
     foreground_window_bounds, interact_check, selection_too_big, key_code
 )
 from widgets import (
@@ -1962,6 +1964,101 @@ class DayChart(QWidget):
             painter.drawText(QRect(round(index * width), base + 2, round(width), 14), Qt.AlignmentFlag.AlignCenter, str(day.day))
 
 
+class ShareCardDialog(QDialog):
+    """Makes a picture of your week (or month, or season) to save, copy or post to Discord."""
+
+    posted = Signal(bool, str)
+
+    def __init__(self, window: "MainWindow"):
+        super().__init__(window)
+        self.window_ = window
+        self.png = b""
+        self.setWindowTitle("Share card")
+        self.setMinimumWidth(640)
+        box = QVBoxLayout(self)
+        box.addWidget(label("Share card", "heading"))
+        row = QHBoxLayout()
+        row.addWidget(label("Period", "small"))
+        self.period = QComboBox()
+        for key, text in sharecard.PERIODS:
+            self.period.addItem(text, key)
+        self.period.activated.connect(lambda _: self.make())
+        row.addWidget(self.period)
+        row.addStretch(1)
+        box.addLayout(row)
+        self.preview = QLabel()
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        box.addWidget(self.preview)
+        self.status = label("", "small", wrap=True)
+        box.addWidget(self.status)
+        buttons = QHBoxLayout()
+        self.copy_button = QPushButton("Copy picture")
+        self.copy_button.clicked.connect(self.copy)
+        self.save_button = QPushButton("Save as PNG...")
+        self.save_button.clicked.connect(self.save)
+        self.post_button = QPushButton("Post to Discord")
+        self.post_button.setObjectName("primary")
+        self.post_button.clicked.connect(self.post)
+        for button in (self.copy_button, self.save_button, self.post_button):
+            buttons.addWidget(button)
+        buttons.addStretch(1)
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        buttons.addWidget(close)
+        box.addLayout(buttons)
+        self.posted.connect(self._posted)
+        self.make()
+
+    def webhook(self) -> str:
+        """Match posts go to the match channel when there is one, otherwise the main channel."""
+        s = self.window_.settings
+        return s["match_webhook_url"] or s["webhook_url"]
+
+    def make(self) -> None:
+        w = self.window_
+        card = sharecard.collect(
+            w.matches.history, self.period.currentData(), date.today(), w.settings["season_start"],
+            w.settings["player_name"], goals.clean_goal(w.settings["daily_goal"]), w.stats.today,
+        )
+        self.png = sharecard_render.to_png(card)
+        image = QImage.fromData(self.png)
+        self.preview.setPixmap(QPixmap.fromImage(image).scaledToWidth(600, Qt.TransformationMode.SmoothTransformation))
+        self.post_button.setEnabled(bool(self.webhook()))
+        self.post_button.setToolTip("" if self.webhook() else "Add a Discord webhook in Setup first.")
+        self.status.setText("")
+
+    def copy(self) -> None:
+        QGuiApplication.clipboard().setImage(QImage.fromData(self.png))
+        self.status.setText("Copied. Paste it into Discord with Ctrl+V.")
+
+    def save(self) -> None:
+        name, _ = QFileDialog.getSaveFileName(
+            self, "Save share card", str(Path.home() / "chest-tracker-card.png"), "PNG picture (*.png)"
+        )
+        if not name:
+            return
+        try:
+            Path(name).write_bytes(self.png)
+        except OSError as error:
+            self.status.setText(f"Couldn't save the picture: {error.strerror or error.__class__.__name__}")
+            return
+        self.status.setText("Saved.")
+
+    def post(self) -> None:
+        url, player, png = self.webhook(), self.window_.settings["player_name"], self.png
+        self.post_button.setEnabled(False)
+        self.status.setText("Posting...")
+
+        def work() -> None:
+            self.posted.emit(*post_image(url, player, png, "chest-tracker-card.png"))
+
+        threading.Thread(target=work, daemon=True, name="share-card").start()
+
+    def _posted(self, ok: bool, message: str) -> None:
+        self.status.setText(message)
+        self.post_button.setEnabled(bool(self.webhook()))
+
+
 class ReportPage(QWidget):
     PAGE = 10  # matches shown at a time
 
@@ -1979,6 +2076,10 @@ class ReportPage(QWidget):
         self.open_button.setToolTip("Saves report.html in the app's data folder and opens it in your browser.")
         self.open_button.clicked.connect(window.open_report)
         head.addWidget(self.open_button)
+        self.card_button = QPushButton("Share card...")
+        self.card_button.setToolTip("Make a picture of your week to post in Discord.")
+        self.card_button.clicked.connect(window.open_share_card)
+        head.addWidget(self.card_button)
         layout.addLayout(head)
         self.tiles = QHBoxLayout()
         layout.addLayout(self.tiles)
@@ -3103,6 +3204,9 @@ class MainWindow(QMainWindow):
                 self.notices_changed.emit()
 
         threading.Thread(target=work, daemon=True, name="treasure-data").start()
+
+    def open_share_card(self) -> None:
+        ShareCardDialog(self).exec()
 
     def open_report(self) -> None:
         """Save the report as a web page next to the app's data and open it."""

@@ -3,6 +3,13 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.11.0
+
+The share card. If you're updating from an older version, the notes for v1.10.0 and the ones before it (below) also apply.
+
+- **Share card.** On the **Report** tab, **Share card...** makes a picture of your **week**, **last 7 days**, **month** or **season**: total chests, matches, best match, average, opened and broken chests, treasures, your goal streak, and a chart of chests per day (or per week for a season).
+- **Copy, save or post.** Copy the picture to paste into Discord, save it as a PNG, or **Post to Discord** with your webhook (it goes to the match channel if you have one set, otherwise your chest channel).
+
 ## v1.10.0
 
 Fortnite stats on the leaderboards. If you're updating from an older version, the notes for v1.9.0 and the ones before it (below) also apply.

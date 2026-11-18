@@ -41,6 +41,7 @@ Chest Tracker began from [Xxoris190/chest-tracker](https://github.com/Xxoris190/
 - **Exact counts from Fortnite's replay.** When a match ends, the app reads the replay file and uses its exact count, including chests you broke rather than opened, with how many were opened and broken and the chest types. If the replay can't be read, the screen count is kept.
 - **Match history and reports.** A **Report** tab shows days, weeks and months as charts and lists; click a match for its details. **Edit total...** lets you correct your total (and undo it), import from ChestCounter or the older Chest Tracker, and **Count my past replays** to fill in older matches from the replays Fortnite has kept.
 - **Treasure Hunters hunt.** The **Treasures** tab shows the week's golden-chest prizes, what you've found, your chances, Treasure Hours, and your finds. Finds are read from replays, and you can tick off any the replays missed. Past weeks stay available. The hunt data comes from [ChestCounter's](https://github.com/LED-N/Fortnite-ChestCounter) content file and updates without a new release.
+- **Share card.** On the Report tab, **Share card...** makes a picture of your week, last 7 days, month or season, with your totals, best match, opened and broken chests, treasures and a daily chart. Copy it, save it as a PNG, or post it straight to Discord.
 - **Goals.** Set a chests-per-day goal and a chests-per-match goal. Progress bars show on the Tracker tab and the overlay, with a day streak, and a chime plays when you reach one.
 - **Backups.** A daily automatic backup (last 7 kept) plus **Back up now...** and **Restore from a backup...** in **Settings**.
 - **Optional chime.** A short sound when a chest is counted, for when you miss the animation. Off by default, with its own volume.
@@ -98,6 +99,14 @@ The Tracker page shows the average, median and best chests per match. Matches wi
 The screen can't see chests that are broken rather than opened, but Fortnite's replay records every chest you searched. After each match the app waits for the replay (it can take a minute or two to finish writing), reads it with the bundled `chest-scan` program, and uses that count instead of the screen count. This needs **Record Replays** turned on in Fortnite's settings; if it's off, or the replay can't be read, the screen count stands. If that happens for 3 matches in a row, a banner says why. You can turn this off under **Replay counting** in **Setup**, and point the app at a different replay folder in **Settings**.
 
 **Count my past replays** (in **Edit total...**) reads the replays Fortnite still has and fills in your history from the start of the season (editable). Counts from before the replays are kept, and matches covered by a replay get the replay's count.
+
+### Share card
+
+<p align="center">
+  <img src="docs/images/card.png" alt="A share card showing 124 chests over the last 7 days, with match stats and a chart of chests per day, using sample data" width="70%">
+</p>
+
+**Report > Share card...** makes the picture above for the period you choose. **Post to Discord** sends it to your match channel (or your chest channel if there isn't one) using your webhook; or copy it and paste it anywhere.
 
 ### Treasures
 
@@ -245,6 +254,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `replays.py`, `scanner/` | Reads a finished match's replay with the bundled `chest-scan` program (.NET) |
 | `backfill.py`, `importer.py`, `adjustments.py` | Counting past replays, importing from other trackers, and the editable list of total changes |
 | `boards.py`, `store.py`, `bot.py` | The leaderboard periods and categories, the bot's database, and the Discord bot |
+| `sharecard.py`, `sharecard_render.py` | The data and drawing for the share card |
 | `report.py`, `timefmt.py` | The Report tab's numbers and the clock format |
 | `content.py`, `treasures.py`, `marks.py` | The treasure hunt data, chances and finds, and hand-ticked prizes |
 | `backup.py`, `notices.py`, `startup.py` | Backups, developer messages, and starting with Windows |
