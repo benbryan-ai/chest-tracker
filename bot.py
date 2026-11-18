@@ -5,12 +5,14 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import discord
 from discord import app_commands
 
-from protocol import parse_delta, parse_match
+import boards
+from protocol import parse_delta, parse_match, parse_match_stats
 from reports import GroupReports, format_report
 from store import Store
 
@@ -23,7 +25,14 @@ def ingest(store: Store, message) -> bool:
         return False
     amount = parse_delta(message.content)
     if amount is None:
-        return False
+        stats = parse_match_stats(message.content)
+        if stats is None:
+            return False
+        start, chests, opened, broken, treasures = stats
+        if start > message.created_at.timestamp() + 86400:  # a match can't start in the future
+            return False
+        store.record_match(message.author.name, start, chests, opened, broken, treasures)
+        return True
     return store.record_message(
         message.id, message.author.name, amount, int(message.created_at.timestamp())
     )
@@ -43,7 +52,7 @@ def collect_match(reports: GroupReports, message, now: float) -> bool:
 class ChestBot(discord.Client):
     def __init__(
         self, store: Store, channel_id: int, on_status: Callable[[str, str], None],
-        match_channel_id: int | None = None,
+        match_channel_id: int | None = None, season_start: str = "",
     ):
         intents = discord.Intents.none()
         intents.guilds = True
@@ -59,7 +68,7 @@ class ChestBot(discord.Client):
         self.on_status = on_status
         self.tree = app_commands.CommandTree(self)
         self.synced = False
-        register_commands(self.tree, store)
+        register_commands(self.tree, store, season_start)
 
     async def on_ready(self):
         try:
@@ -113,7 +122,7 @@ class ChestBot(discord.Client):
         self.store.set_last_message_id(message.id)
 
 
-def register_commands(tree: app_commands.CommandTree, store: Store) -> None:
+def register_commands(tree: app_commands.CommandTree, store: Store, season_start: str = "") -> None:
     @tree.command(name="chests", description="Show how many chests have been opened")
     @app_commands.describe(player="Whose count to show (leave empty for everyone)")
     async def chests(interaction: discord.Interaction, player: str | None = None):
@@ -123,15 +132,17 @@ def register_commands(tree: app_commands.CommandTree, store: Store) -> None:
             f"({store.today(player):,} today)"
         )
 
-    @tree.command(name="leaderboard", description="Show who has opened the most chests")
-    async def leaderboard(interaction: discord.Interaction):
-        rows = store.leaderboard()
-        if not rows:
-            await interaction.response.send_message("No chests counted yet.")
-            return
-        lines = [f"**{rank}.** {name}: {count:,}" for rank, (name, count) in enumerate(rows, 1)]
+    @tree.command(name="leaderboard", description="Show the leaderboard (this week by default)")
+    @app_commands.describe(period="This week, this season or all time", category="What to rank players by")
+    @app_commands.choices(
+        period=[app_commands.Choice(name=text, value=key) for key, text in boards.PERIODS],
+        category=[app_commands.Choice(name=text, value=key) for key, text in boards.CATEGORIES],
+    )
+    async def leaderboard(interaction: discord.Interaction, period: str = "week", category: str = "chests"):
+        since = boards.period_start(period, datetime.now(), season_start)
+        rows = store.player_stats(None if period == "all" else since if since is not None else 0)
         await interaction.response.send_message(
-            "\U0001F3C6 **Chest leaderboard**\n" + "\n".join(lines)
+            boards.format_board(rows, period, category, escape=discord.utils.escape_markdown)
         )
 
     @tree.command(name="add", description="Correct a count (use a negative number to remove)")
@@ -156,11 +167,13 @@ class BotRunner:
     """Runs the bot on its own thread so the app window stays responsive."""
 
     def __init__(
-        self, token: str, channel_id: int, db_path: Path, on_status, match_channel_id: int | None = None
+        self, token: str, channel_id: int, db_path: Path, on_status, match_channel_id: int | None = None,
+        season_start: str = "",
     ):
         self.token = token
         self.channel_id = channel_id
         self.match_channel_id = match_channel_id
+        self.season_start = season_start
         self.db_path = db_path
         self.on_status = on_status
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -180,7 +193,9 @@ class BotRunner:
         store = Store(self.db_path)  # SQLite connections stay on the thread that made them
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.client = ChestBot(store, self.channel_id, self.on_status, self.match_channel_id)
+        self.client = ChestBot(
+            store, self.channel_id, self.on_status, self.match_channel_id, self.season_start
+        )
         status, message = "stopped", "Bot is off."
         try:
             self.loop.run_until_complete(self.client.start(self.token))

@@ -371,6 +371,16 @@ class MatchPoster:
                 delay = self.send_once()
 
 
+class StatsPoster(MatchPoster):
+    """Posts a stats line per finished match to the main chest channel, which the bot reads for the leaderboards.
+
+    It works like the match poster (a queue kept on disk, one line at a time) but holds more, because
+    sharing your match history queues a lot of lines at once.
+    """
+
+    MAX_QUEUE = 300
+
+
 def check_webhook(url: str) -> tuple[bool, str]:
     """Check a webhook exists without posting anything in the channel."""
     if not is_webhook_url(url):

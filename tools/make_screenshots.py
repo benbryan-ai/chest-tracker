@@ -87,10 +87,17 @@ def main(out: Path) -> None:
     win.set_state("watching")
     win._refresh_total()
     win.treasure_marks.set(content_week_prize(win), True)
-    win.group.show_leaderboard([("Alex", 1284), ("Sam", 1102), ("Jordan", 861), ("Riley", 640)], 3887)
+    week = [
+        {"name": "Alex", "chests": 142, "matches": 9, "best": 24, "opened": 131, "broken": 11, "treasures": 3},
+        {"name": "Sam", "chests": 128, "matches": 8, "best": 21, "opened": 122, "broken": 6, "treasures": 2},
+        {"name": "Jordan", "chests": 97, "matches": 7, "best": 19, "opened": 90, "broken": 7, "treasures": 1},
+        {"name": "Riley", "chests": 64, "matches": 5, "best": 16, "opened": 63, "broken": 1, "treasures": 0},
+    ]
+    win.group.show_board({"week": week, "season": week, "all": week}, 3887)
+    win.group.category_box.setCurrentIndex(win.group.category_box.findData("chests"))
     win.resize(WIDTH, HEIGHT)
     win.show()
-    shots = (("tracker", 0), ("setup", 1), ("group", 2), ("report", 4), ("treasures", 6), ("settings", 5))
+    shots = (("tracker", 0), ("setup", 1), ("leaderboards", 2), ("report", 4), ("treasures", 6), ("settings", 5))
     for name, index in shots:
         win.go_to(index)
         win._page_shown(index)

@@ -551,11 +551,12 @@ class MatchMeter(QWidget):
 class LeaderRow(QWidget):
     """One leaderboard line: a bar showing the player's share of the top score."""
 
-    def __init__(self, rank: int, name: str, count: int, top: int, is_you: bool):
+    def __init__(self, rank: int, name: str, count: float, top: float, is_you: bool, text: str | None = None):
         super().__init__()
         self.rank, self.name, self.count, self.top, self.is_you = rank, name, count, top, is_you
+        self.text = text if text is not None else f"{count:,}"
         self.setFixedHeight(46)
-        self.setAccessibleName(f"{rank}. {name}: {count} chests")
+        self.setAccessibleName(f"{rank}. {name}: {self.text}")
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
@@ -584,7 +585,7 @@ class LeaderRow(QWidget):
         p.setPen(QColor(BONE))
         p.drawText(
             area.adjusted(0, 0, -14, 0),
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, f"{self.count:,}",
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self.text,
         )
 
 

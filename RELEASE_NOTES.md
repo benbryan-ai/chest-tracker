@@ -3,6 +3,16 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v1.9.0
+
+Leaderboards. If you're updating from an older version, the notes for v1.8.0, v1.7.2 and v1.7.1 (below) also apply.
+
+- **The Group tab is now Leaderboards.** Pick a period (**This week**, **This season** or **All time**) and a category: most chests, best match, average per match, chests opened, chests broken, treasures found, or matches played. Below the ranking, a table shows everyone's numbers side by side.
+- **Match stats.** Each finished match now sends a short stats line to your chest channel (its time, chests, opened, broken and treasures). The bot uses these for the new boards. All-time chests still come from the running total, so edits and imports are included.
+- **Share my match history.** One button sends your matches since the season began, so the boards include games you played before this version.
+- **`/leaderboard` in Discord** now takes a period and a category, and shows this week's most chests by default.
+- **Who needs to update.** The player running the bot, and everyone who wants to appear on the new boards (besides most chests, all time). Older apps keep working: their chest counts still add up.
+
 ## v1.8.0
 
 Goals. If you're updating from an older version, the notes for v1.7.2 and v1.7.1 (below) also apply.

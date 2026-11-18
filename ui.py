@@ -41,7 +41,9 @@ import notices
 import report
 import startup
 import treasures
+import boards
 import goals
+import protocol
 import timefmt
 import updater
 from adjustments import Adjustments
@@ -50,7 +52,7 @@ from version import VERSION
 from settings import Settings, Stats
 from store import Store
 from watcher import (
-    VK_F8, VK_F9, VK_F10, KeyEdge, MatchPoster, Sender, WatchEngine, capture_focused_screen, check_webhook, fortnite_focused,
+    VK_F8, VK_F9, VK_F10, KeyEdge, MatchPoster, Sender, StatsPoster, WatchEngine, capture_focused_screen, check_webhook, fortnite_focused,
     foreground_window_bounds, interact_check, selection_too_big, key_code
 )
 from widgets import (
@@ -1688,15 +1690,34 @@ class GroupPage(QWidget):
         outer.addWidget(scroll)
 
         header = QHBoxLayout()
-        header.addWidget(label("Group", "heading"))
+        header.addWidget(label("Leaderboards", "heading"))
         header.addStretch(1)
         self.group_total = label("", "muted")
         header.addWidget(self.group_total, 0, Qt.AlignmentFlag.AlignBottom)
         layout.addLayout(header)
 
+        self.board_data: dict[str, list[dict]] = {}
+        pick = QHBoxLayout()
+        self.period_box = QComboBox()
+        for key, text in boards.PERIODS:
+            self.period_box.addItem(text, key)
+        self.category_box = QComboBox()
+        for key, text in boards.CATEGORIES:
+            self.category_box.addItem(text, key)
+        for box in (self.period_box, self.category_box):
+            box.activated.connect(lambda _: self.render())
+            pick.addWidget(box, 1)
+        layout.addLayout(pick)
+
         self.board = QVBoxLayout()
         self.board.setSpacing(2)
         layout.addLayout(self.board)
+        self.glance_title = label("Everyone at a glance", "subheading")
+        layout.addWidget(self.glance_title)
+        self.glance = QGridLayout()
+        self.glance.setHorizontalSpacing(14)
+        self.glance.setVerticalSpacing(4)
+        layout.addLayout(self.glance)
         self.sync_row = QWidget()
         sync = QHBoxLayout(self.sync_row)
         sync.setContentsMargins(0, 6, 0, 0)
@@ -1708,6 +1729,15 @@ class GroupPage(QWidget):
         sync.addWidget(self.sync_button)
         self.sync_row.hide()
         layout.addWidget(self.sync_row)
+        share = QHBoxLayout()
+        share.addWidget(label(
+            "Match stats (best match, average, opened and broken, treasures) are sent as each match ends. "
+            "To include matches you played before this version, share your match history once.", "muted", wrap=True,
+        ), 1)
+        self.share_button = QPushButton("Share my match history")
+        self.share_button.clicked.connect(self.share_history)
+        share.addWidget(self.share_button)
+        layout.addLayout(share)
         layout.addSpacing(14)
 
         bot_row = QHBoxLayout()
@@ -1785,19 +1815,61 @@ class GroupPage(QWidget):
             match_channel_id=self.match_channel.text().strip(),
         )
 
-    def show_leaderboard(self, rows: list[tuple[str, int]], total: int) -> None:
-        clear_layout(self.board)
-        if not rows:
-            self.board.addWidget(label(
-                "No chests on the leaderboard yet. The player running the bot sees totals here once "
-                "anyone opens a chest.", "muted", wrap=True,
-            ))
-        me = self.window_.settings["player_name"].lower()
-        top = rows[0][1] if rows else 0
-        for rank, (name, count) in enumerate(rows, 1):
-            self.board.addWidget(LeaderRow(rank, name, count, top, name.lower() == me))
-        self.group_total.setText(f"{total:,} chests between you" if rows else "")
+    def show_board(self, data: dict[str, list[dict]], total: int) -> None:
+        """New numbers from the bot's database: one list of players per period."""
+        self.board_data = data
+        self.group_total.setText(f"{total:,} chests between you" if total else "")
+        self.render()
         self.update_sync()
+
+    def render(self) -> None:
+        period = self.period_box.currentData()
+        category = self.category_box.currentData()
+        rows = self.board_data.get(period, [])
+        ranked = boards.rank(rows, category)
+        me = self.window_.settings["player_name"].strip().lower()
+        clear_layout(self.board)
+        if not ranked:
+            note = ""
+            if category == "average":
+                note = f" Averages need {boards.MIN_MATCHES_FOR_AVERAGE} matches."
+            elif period != "all" and category != "chests":
+                note = " Match stats come from each player's app (version 1.9.0 or newer)."
+            self.board.addWidget(label(
+                "Nothing here yet. The player running the bot sees the numbers once anyone in the group "
+                "finishes a match." + note, "muted", wrap=True,
+            ))
+        top = boards.value(ranked[0], category) if ranked else 0
+        for number, row in enumerate(ranked, 1):
+            self.board.addWidget(LeaderRow(
+                number, row["name"], boards.value(row, category), top, row["name"].lower() == me,
+                boards.shown(row, category),
+            ))
+        self._render_glance(rows, category, me)
+
+    GLANCE = (("matches", "Matches"), ("chests", "Chests"), ("best", "Best"), ("average", "Avg"),
+              ("opened", "Opened"), ("broken", "Broken"), ("treasures", "Treasures"))
+
+    def _render_glance(self, rows: list[dict], category: str, me: str) -> None:
+        """A small table so everyone's numbers can be compared side by side."""
+        clear_layout(self.glance)
+        shown_rows = sorted(rows, key=lambda r: (-boards.value(r, category), r["name"].lower()))[:10]
+        self.glance_title.setVisible(bool(shown_rows))
+        if not shown_rows:
+            return
+        self.glance.addWidget(label("", "small"), 0, 0)
+        for column, (_, title) in enumerate(self.GLANCE, 1):
+            head = label(title, "small")
+            head.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self.glance.addWidget(head, 0, column)
+        for line, row in enumerate(shown_rows, 1):
+            mine = row["name"].lower() == me
+            self.glance.addWidget(label(row["name"] + (" (you)" if mine else ""), "" if mine else "small"), line, 0)
+            for column, (key, _) in enumerate(self.GLANCE, 1):
+                cell = label(boards.shown(row, key) if key != "average" or row["matches"] else "-", "" if mine else "small")
+                cell.setAlignment(Qt.AlignmentFlag.AlignRight)
+                self.glance.addWidget(cell, line, column)
+        self.glance.setColumnStretch(0, 1)
 
     def update_sync(self) -> None:
         """Offer to bring your leaderboard number in line with your total (edits, imports and past replays)."""
@@ -1808,6 +1880,11 @@ class GroupPage(QWidget):
             self.sync_text.setText(
                 f"Your total is {self.window_.stats.total:,}, but the leaderboard has you {abs(gap):,} {direction}."
             )
+
+    def share_history(self) -> None:
+        sent = self.window_.share_match_history()
+        self.share_button.setText("Shared" if sent else "Nothing to share")
+        QTimer.singleShot(2500, lambda: self.share_button.setText("Share my match history"))
 
     def sync_now(self) -> None:
         gap = self.window_.sync_group_total()
@@ -2309,6 +2386,7 @@ class MainWindow(QMainWindow):
         self.delivery_ok = True
         self.current_state = "off"
         self.leaderboard_seen = None
+        self._board_state = None
         self.chime = Chime()
         self.box_filter = load_bundled()  # skips ammo and fruit boxes; None keeps counting everything
         self.overlay = ChestOverlay()
@@ -2359,7 +2437,7 @@ class MainWindow(QMainWindow):
         self.settings_page = SettingsPage(self)
         self.nav = QButtonGroup(self)
         for index, (name, page) in enumerate(
-            (("Tracker", self.tracker), ("Setup", self.setup), ("Group", self.group),
+            (("Tracker", self.tracker), ("Setup", self.setup), ("Leaderboards", self.group),
              ("Fortnite Stats", self.fortnite_stats), ("Report", self.report), ("Settings", self.settings_page),
              ("Treasures", self.treasures_page))
         ):
@@ -2456,6 +2534,13 @@ class MainWindow(QMainWindow):
         threading.Thread(target=self.poster.run_forever, daemon=True).start()
         if self.poster.queue:
             self.poster.wake.set()
+        self.stats_poster = StatsPoster(
+            self.settings["webhook_url"], self.settings["player_name"],
+            folder / "pending_stats.json", self.delivery.emit,
+        )
+        threading.Thread(target=self.stats_poster.run_forever, daemon=True).start()
+        if self.stats_poster.queue:
+            self.stats_poster.wake.set()
         if self.sender.pending:
             self.sender.wake.set()
 
@@ -2639,6 +2724,7 @@ class MainWindow(QMainWindow):
         scanner = replays.find_scanner() if self.settings["replay_count"] else None
         if scanner is None:
             self._post_match(record["chests"])
+            self._share_match(record)
             return
         # The post waits for the replay's exact count (or for the search to give up).
         self.tracker.log("Checking the replay for the exact count...", ASH)
@@ -2666,6 +2752,44 @@ class MainWindow(QMainWindow):
             # A hand-edited code the bot couldn't read would turn the post into a plain line.
             self.poster.add(chests, "" if party_problem(code) else normalize_party(code))
 
+    def _stats_line(self, record: dict) -> str | None:
+        try:
+            start = int(datetime.fromisoformat(record["start"]).timestamp())
+            chests = int(record["chests"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if chests < 1 or chests > protocol.MAX_MATCH_CHESTS:
+            return None
+        broken = min(chests, max(0, int(record.get("broken") or 0)))
+        opened = min(chests, int(record["opened"])) if record.get("opened") is not None else chests - broken
+        return protocol.format_match_stats(start, chests, opened, broken, min(50, len(record.get("treasures") or [])))
+
+    def _share_match(self, record: dict) -> None:
+        """Send a finished match's numbers to the group's bot, for the leaderboards."""
+        if self.settings["webhook_url"] and self.settings["player_name"]:
+            line = self._stats_line(record)
+            if line:
+                self.stats_poster.add_text(line)
+
+    def share_match_history(self) -> int:
+        """Send the matches since the season began (the newest few hundred). Returns how many were queued."""
+        if not (self.settings["webhook_url"] and self.settings["player_name"]):
+            return 0
+        since = boards.period_start("season", datetime.now(), self.settings["season_start"])
+        lines = []
+        for record in self.matches.history:
+            try:
+                if since is not None and datetime.fromisoformat(record["start"]).timestamp() < since:
+                    continue
+            except (KeyError, ValueError):
+                continue
+            line = self._stats_line(record)
+            if line:
+                lines.append(line)
+        for line in lines[-StatsPoster.MAX_QUEUE:]:
+            self.stats_poster.add_text(line)
+        return len(lines[-StatsPoster.MAX_QUEUE:])
+
     def _post_treasures(self, finds: list) -> None:
         """One line per treasure to the match channel, after the match's own post."""
         s = self.settings
@@ -2680,6 +2804,7 @@ class MainWindow(QMainWindow):
             self.tracker.log("Couldn't read the replay, so the screen count stands", ASH)
             self._replay_missed(reason)
             self._post_match(record["chests"])
+            self._share_match(record)
             return
         self._replay_worked()
         if found.note:
@@ -2702,6 +2827,7 @@ class MainWindow(QMainWindow):
             self.tracker.log(f"Treasure found: {treasure['name']}", GOLD)
         self._post_match(found.chests)
         self._post_treasures(found.treasures)
+        self._share_match(self.matches.find(record["start"]) or record)
 
     def export_match_history(self) -> None:
         name, _ = QFileDialog.getSaveFileName(
@@ -2784,6 +2910,7 @@ class MainWindow(QMainWindow):
             return 0
         added = self.matches.add_imported(entry["id"], offer.matches)
         self.share_change(self.stats.adjust_total(offer.chests))
+        self.share_match_history()
         log.info("Imported %d chests and %d matches from %s", offer.chests, added, offer.source)
         self._refresh_total()
         return added
@@ -2794,6 +2921,7 @@ class MainWindow(QMainWindow):
         undo = self.matches.apply_backfill(batch, plan.new, plan.replaced)
         changed = self.stats.adjust_total(plan.total_change)
         self.share_change(changed)
+        self.share_match_history()
         note = (f"Counted past replays since {plan.since.date().isoformat()}: "
                 f"{len(plan.new)} added, {len(plan.replaced) - plan.refreshed} corrected, {plan.refreshed} filled in")
         self.adjustments.add(changed, "replay", note, undo=undo, entry_id=batch)
@@ -3032,6 +3160,9 @@ class MainWindow(QMainWindow):
         self.poster.url = self.settings["match_webhook_url"]
         self.poster.player = self.settings["player_name"]
         self.poster.wake.set()
+        self.stats_poster.url = self.settings["webhook_url"]
+        self.stats_poster.player = self.settings["player_name"]
+        self.stats_poster.wake.set()
         self.restart_engine()
 
     def _update_notice(self) -> None:
@@ -3207,6 +3338,7 @@ class MainWindow(QMainWindow):
             self.settings["bot_token"], int(self.settings["channel_id"]),
             self.folder / "chests.db", self.bot_status.emit,
             int(self.settings["match_channel_id"]) if self.settings["match_channel_id"].isdigit() else None,
+            self.settings["season_start"],
         )
         self.group.toggle.setText("Stop bot")
         self.bot.start()
@@ -3229,18 +3361,24 @@ class MainWindow(QMainWindow):
         self.stats.roll_over()
         self._show_stats()
         path = self.folder / "chests.db"
-        rows, total = [], 0
+        rows, total, data = [], 0, {}
         if path.exists():
             store = Store.read_only(path)
             try:
                 rows, total = store.leaderboard(), store.total()
+                now = datetime.now()
+                for key, _ in boards.PERIODS:
+                    since = boards.period_start(key, now, self.settings["season_start"])
+                    data[key] = store.player_stats(None if key == "all" else (since or 0))
             except sqlite3.Error:  # the bot is creating the database right now
-                pass
+                data = {}
             finally:
                 store.db.close()
-        if (rows, total) != self.leaderboard_seen:  # rebuild only when something changed
+        seen = (rows, total, data)
+        if seen != self._board_state:  # rebuild only when something changed
+            self._board_state = seen
             self.leaderboard_seen = (rows, total)
-            self.group.show_leaderboard(rows, total)
+            self.group.show_board(data, total)
 
     def closeEvent(self, event) -> None:
         if self._overlay_positioning:
@@ -3279,5 +3417,5 @@ class MainWindow(QMainWindow):
             self.bot.stop()
         self.tray.hide()
         deadline = time.monotonic() + 2
-        while (self.sender.pending or self.poster.queue) and time.monotonic() < deadline:
+        while (self.sender.pending or self.poster.queue or self.stats_poster.queue) and time.monotonic() < deadline:
             time.sleep(0.1)

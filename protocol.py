@@ -80,6 +80,33 @@ def format_treasure(name: str) -> str:
     return f"{TREASURE_PREFIX}{clean or 'something golden'}"
 
 
+# --- match stats: one line per finished match, read by the bot to build the leaderboards ---
+
+_STATS_PATTERN = re.compile(
+    r"\U0001F4CA <t:(\d{9,11}):[tTdDfFR]> · (\d+) chests? · (\d+) opened · (\d+) broken · (\d+) treasures?"
+)
+MAX_MATCH_CHESTS = 600
+
+
+def format_match_stats(start: int, chests: int, opened: int, broken: int, treasures: int) -> str:
+    """A line for a finished match. Discord shows the <t:...> part as the match's time in each reader's own zone."""
+    return (
+        f"\U0001F4CA <t:{int(start)}:f> · {chests} chest{'' if chests == 1 else 's'} · {opened} opened · "
+        f"{broken} broken · {treasures} treasure{'' if treasures == 1 else 's'}"
+    )
+
+
+def parse_match_stats(content: str) -> tuple[int, int, int, int, int] | None:
+    """(start, chests, opened, broken, treasures) from a match stats line, or None for anything else."""
+    found = _STATS_PATTERN.fullmatch(content.strip())
+    if not found:
+        return None
+    start, chests, opened, broken, treasures = (int(g) for g in found.groups())
+    if chests < 1 or chests > MAX_MATCH_CHESTS or opened > chests or broken > chests or treasures > 50:
+        return None
+    return start, chests, opened, broken, treasures
+
+
 def format_match(chests: int, party: str = "") -> str:
     text = f"\U0001F3AE {chests} chest{'' if chests == 1 else 's'} this match"
     party = normalize_party(party)

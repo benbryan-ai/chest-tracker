@@ -115,6 +115,10 @@ class MatchLog:
                 return change
         return 0
 
+    def find(self, start: str) -> dict | None:
+        """A saved match by its start time."""
+        return next((m for m in reversed(self.history) if m["start"] == start), None)
+
     def last_chests(self) -> int | None:
         """The chest count of the most recent finished match."""
         return self.history[-1]["chests"] if self.history else None

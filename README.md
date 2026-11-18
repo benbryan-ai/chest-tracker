@@ -32,7 +32,7 @@ Chest Tracker began from [Xxoris190/chest-tracker](https://github.com/Xxoris190/
 - **Counts real searches.** Cancelled searches and chests you only walk past don't count.
 - **Shows it live.** The chest on screen lifts its lid during a search, bursts open when a chest counts, and slams shut on a cancel.
 - **Works without Discord.** Your local totals and activity history work without a webhook or bot.
-- **Can keep a group leaderboard.** Optionally connect Discord to total everyone's chests and answer `/chests` and `/leaderboard`.
+- **Leaderboards for your group.** Optionally connect Discord to rank everyone by chests, best match, average per match, chests opened or broken, treasures found and matches played, for this week, this season or all time. The bot also answers `/chests` and `/leaderboard`.
 - **Can show Fortnite stats.** Look up public Battle Royale stats by player name with an optional Fortnite-API.com key.
 - **Doesn't lose chests.** If Discord can't be reached, chests are saved and sent later, and the bot catches up after being offline.
 - **Works with your binds.** Use any key, a mouse button, the scroll wheel, or an Xbox-style controller button to interact.
@@ -63,7 +63,7 @@ Closing the window keeps it counting from the system tray. To exit, right-click 
 
 <p align="center">
   <img src="docs/images/setup.png" alt="The Setup page with four completed steps and a live prompt match bar" width="49%">
-  <img src="docs/images/group.png" alt="The Group page with a leaderboard of four sample players" width="49%">
+  <img src="docs/images/leaderboards.png" alt="The Leaderboards tab ranking four sample players, with their stats side by side" width="49%">
 </p>
 
 <p align="center">
@@ -103,6 +103,10 @@ The screen can't see chests that are broken rather than opened, but Fortnite's r
 
 The **Treasures** tab covers the Treasure Hunters hunt: the week's prizes (choose any week that has started), your chances, Treasure Hours, and your latest finds. Prizes found in a replay are ticked for you; tick any others by hand. If a treasure is found in a replay, a line goes to your match channel in Discord (you can turn this off in Settings), and during the hunt the overlay can show a Treasure Hour countdown.
 
+### Leaderboards
+
+When your app is set up with a player name and webhook, each finished match sends a short stats line (the match's time, chests, how many were opened and broken, and treasures found) to the same channel as your chest counts. The bot reads these to build the **Leaderboards** tab, which only the person running the bot sees, and the `/leaderboard` command. **Share my match history** sends your matches from this season once. Weekly boards start on Monday; the season starts on the date in **Count my past replays**. Match stats need everyone's app to be version 1.9.0 or newer, and the bot to be the new version too.
+
 ### Settings, backups and messages
 
 The **Settings** tab holds the 12 or 24 hour clock, minimize to tray, start with Windows (starts minimized), the overlay options, replay folder, and backups. Backups hold your total, match history, list of changes and ticked treasures; Discord settings are never included. The app can also show a short plain-text message from the developer (for example "a Fortnite update broke replay reading"), which you can dismiss or turn off in **Settings**. Those messages come from [`notices.json`](NOTICES.md) in this repository.
@@ -133,7 +137,7 @@ Only one person in your group needs to do this. Everyone else only needs the sha
 | Discord command | What it does |
 | --- | --- |
 | `/chests` | Everyone's total and today's count. Add a player name to see just theirs. |
-| `/leaderboard` | Top 10 players |
+| `/leaderboard` | Top 10 players. Choose a period (this week, this season, all time) and a category (most chests, best match, average, opened, broken, treasures, matches). Defaults to this week, most chests |
 | `/add` | Corrects a player's count (Manage Server only) |
 | `/reset` | Sets a player's count to 0 (Manage Server only) |
 
@@ -143,7 +147,7 @@ Only one person in your group needs to do this. Everyone else only needs the sha
 4. Under **OAuth2 > URL Generator**, tick the scopes `bot` and `applications.commands`, and the permissions **View Channels**, **Read Message History** and **Send Messages**. Open the generated link and add the bot to your server.
 5. Create a channel just for this, such as `#chest-log`, and make sure the bot can see it.
 6. In Discord, turn on **User Settings > Advanced > Developer Mode**, then right-click the channel and select **Copy Channel ID**.
-7. In the app's **Group** page, select **Show bot connection**, paste the token and channel ID, and select **Start bot**.
+7. In the app's **Leaderboards** tab, select **Show bot connection**, paste the token and channel ID, and select **Start bot**.
 
 ### Match reports and group game reports
 
@@ -152,7 +156,7 @@ Optional, and separate from the chest log above. Match reports go to a second we
 1. Create a second channel, such as `#match-reports`, and add a webhook to it (Edit Channel, Integrations, Webhooks). Everyone who wants to post matches pastes that URL under **Match reports** in Setup, next to the first webhook. You also need a player name, as for the chest log.
 2. When a match ends, the app posts one line, for example `14 chests this match`. Tick off **Post each match to Discord** if you'd rather not share your matches, for example when you play solo. Your match history stays on your PC either way.
 3. For a **group game report**, everyone in the squad enters the same **party code** in Setup (3 to 12 letters or numbers, such as `SQUAD42`). The line then carries the code.
-4. The person running the bot pastes the match channel's ID into **Match reports channel ID** on the Group page, and the bot needs **View Channels** and **Send Messages** there. If it's a different channel than the first, make sure the bot can see both.
+4. The person running the bot pastes the match channel's ID into **Match reports channel ID** on the Leaderboards tab, and the bot needs **View Channels** and **Send Messages** there. If it's a different channel than the first, make sure the bot can see both.
 5. After the first player's line arrives, the bot waits 3 minutes for the rest of the team (or until 4 players have reported), then posts one report with each player's chests, the team total and who opened the most. It needs at least 2 players. The report is only built while the bot is running, and a report that is pending when the bot stops isn't posted.
 
 A player who opened no chests that match has no line, so they aren't in the report.
@@ -240,6 +244,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `matches.py`, `recap.py` | Chests per match and its history, and the end-of-match screen check |
 | `replays.py`, `scanner/` | Reads a finished match's replay with the bundled `chest-scan` program (.NET) |
 | `backfill.py`, `importer.py`, `adjustments.py` | Counting past replays, importing from other trackers, and the editable list of total changes |
+| `boards.py`, `store.py`, `bot.py` | The leaderboard periods and categories, the bot's database, and the Discord bot |
 | `report.py`, `timefmt.py` | The Report tab's numbers and the clock format |
 | `content.py`, `treasures.py`, `marks.py` | The treasure hunt data, chances and finds, and hand-ticked prizes |
 | `backup.py`, `notices.py`, `startup.py` | Backups, developer messages, and starting with Windows |

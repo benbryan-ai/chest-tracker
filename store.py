@@ -17,6 +17,16 @@ class Store:
                 message_id INTEGER UNIQUE
             );
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS matches (
+                id INTEGER PRIMARY KEY,
+                player TEXT NOT NULL COLLATE NOCASE,
+                start INTEGER NOT NULL,
+                chests INTEGER NOT NULL,
+                opened INTEGER NOT NULL,
+                broken INTEGER NOT NULL,
+                treasures INTEGER NOT NULL,
+                UNIQUE (player, start)
+            );
             """
         )
         self.db.commit()
@@ -36,6 +46,46 @@ class Store:
         )
         self.db.commit()
         return cursor.rowcount == 1
+
+    def record_match(self, player: str, start: int, chests: int, opened: int, broken: int, treasures: int) -> None:
+        """Save a finished match. The same player's match at the same start time is replaced (a later, exact count)."""
+        self.db.execute(
+            """
+            INSERT INTO matches (player, start, chests, opened, broken, treasures) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (player, start) DO UPDATE SET
+                chests = excluded.chests, opened = excluded.opened,
+                broken = excluded.broken, treasures = excluded.treasures
+            """,
+            (player, start, chests, opened, broken, treasures),
+        )
+        self.db.commit()
+
+    def player_stats(self, since: int | None = None) -> list[dict]:
+        """Everyone's numbers since a Unix time (None = all time), one row per player.
+
+        All-time chests come from the running total, which includes corrections and imports;
+        for a period they are the chests in that period's matches.
+        """
+        rows = {}
+        found = self.db.execute(
+            """
+            SELECT player, COUNT(*), SUM(chests), MAX(chests), SUM(opened), SUM(broken), SUM(treasures)
+            FROM matches WHERE start >= ? GROUP BY player
+            """,
+            (since or 0,),
+        ).fetchall()
+        for name, matches, chests, best, opened, broken, treasures in found:
+            rows[name.lower()] = {
+                "name": name, "chests": chests, "matches": matches, "best": best,
+                "opened": opened, "broken": broken, "treasures": treasures,
+            }
+        if since is None:
+            for name, total in self.db.execute("SELECT player, SUM(amount) FROM events GROUP BY player").fetchall():
+                row = rows.setdefault(name.lower(), {
+                    "name": name, "matches": 0, "best": 0, "opened": 0, "broken": 0, "treasures": 0,
+                })
+                row["chests"] = max(0, total)
+        return list(rows.values())
 
     def add_manual(self, player: str, amount: int, ts: int) -> None:
         self.db.execute(
@@ -86,5 +136,6 @@ class Store:
 
     def reset_player(self, player: str) -> int:
         cursor = self.db.execute("DELETE FROM events WHERE player = ?", (player,))
+        self.db.execute("DELETE FROM matches WHERE player = ?", (player,))
         self.db.commit()
         return cursor.rowcount
