@@ -15,7 +15,7 @@ from pathlib import Path
 
 import requests
 
-from version import ASSET_NAME, REPO, VERSION
+from chest_tracker.system.version import ASSET_NAME, REPO, VERSION
 
 API = "https://api.github.com"
 MAX_DOWNLOAD = 400 * 1024 * 1024  # a sanity cap: the app is a fraction of this

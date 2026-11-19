@@ -4,10 +4,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import report
-import startup
-import timefmt
-from replays import clean_kinds, parse_scan
+from chest_tracker.stats import report
+from chest_tracker.system import startup
+from chest_tracker.data import timefmt
+from chest_tracker.counting.replays import clean_kinds, parse_scan
 
 TODAY = date(2026, 11, 15)
 

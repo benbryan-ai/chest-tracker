@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import sharecard
-import sharecard_render
-import watcher
+from chest_tracker.stats import sharecard
+from chest_tracker.gui import sharecard_render
+from chest_tracker.counting import watcher
 from test_ui import app, window  # noqa: F401  (the fixtures)
 
 TODAY = date(2026, 11, 18)  # a Wednesday
@@ -61,17 +61,17 @@ def test_the_picture_has_the_expected_size(app):
 
 def test_posting_an_image_sends_a_file_and_reports_the_result():
     ok = MagicMock(ok=True, status_code=200)
-    with patch("watcher.requests.post", return_value=ok) as post:
+    with patch("chest_tracker.counting.watcher.requests.post", return_value=ok) as post:
         done, message = watcher.post_image("https://discord.com/api/webhooks/1/x", "Sam", b"png")
     assert done and "files" in post.call_args.kwargs and post.call_args.kwargs["allow_redirects"] is False
     assert not watcher.post_image("https://example.com/nope", "Sam", b"png")[0]
     bad = MagicMock(ok=False, status_code=404)
-    with patch("watcher.requests.post", return_value=bad):
+    with patch("chest_tracker.counting.watcher.requests.post", return_value=bad):
         assert not watcher.post_image("https://discord.com/api/webhooks/1/x", "Sam", b"png")[0]
 
 
 def test_the_dialog_makes_a_picture_and_only_posts_with_a_webhook(window):
-    from ui import ShareCardDialog
+    from chest_tracker.gui.ui import ShareCardDialog
     dialog = ShareCardDialog(window)
     assert dialog.png.startswith(b"\x89PNG") and not dialog.post_button.isEnabled()
     window.settings.set(webhook_url="https://discord.com/api/webhooks/1/x")

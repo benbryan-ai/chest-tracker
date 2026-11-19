@@ -3,7 +3,7 @@
 from datetime import date
 from pathlib import Path
 
-from settings import _write_json, read_json
+from chest_tracker.data.settings import _write_json, read_json
 
 
 class TreasureMarks:

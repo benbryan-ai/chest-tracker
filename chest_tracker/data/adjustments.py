@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from settings import _write_json, read_json
+from chest_tracker.data.settings import _write_json, read_json
 
 MAX_ENTRIES = 500
 KINDS = ("hand", "import", "replay")

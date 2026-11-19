@@ -13,8 +13,8 @@ from typing import Callable
 
 import requests
 
-import updater
-from version import REPO, VERSION
+from chest_tracker.system import updater
+from chest_tracker.system.version import REPO, VERSION
 
 log = logging.getLogger("chest-tracker")
 

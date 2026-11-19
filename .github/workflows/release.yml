@@ -19,9 +19,9 @@ jobs:
       - name: Check the tag matches the version in the code
         shell: bash
         run: |
-          code_version=$(python -c "from version import VERSION; print(VERSION)")
+          code_version=$(python -c "from chest_tracker.system.version import VERSION; print(VERSION)")
           if [ "v$code_version" != "${{ github.ref_name }}" ]; then
-            echo "Tag ${{ github.ref_name }} doesn't match version.py ($code_version). Change VERSION, commit, and tag again."
+            echo "Tag ${{ github.ref_name }} doesn't match chest_tracker/system/version.py ($code_version). Change VERSION, commit, and tag again."
             exit 1
           fi
       - name: Check the release notes were updated

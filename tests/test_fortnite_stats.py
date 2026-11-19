@@ -1,7 +1,7 @@
 import pytest
 import requests
 
-from fortnite_stats import API_URL, FortniteStatsError, fetch_stats
+from chest_tracker.stats.fortnite_stats import API_URL, FortniteStatsError, fetch_stats
 
 
 class FakeResponse:

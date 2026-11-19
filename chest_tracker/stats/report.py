@@ -4,7 +4,7 @@ import html
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
-from timefmt import format_stamp
+from chest_tracker.data.timefmt import format_stamp
 
 DAYS_SHOWN = 14
 UNSORTED = "Type not recorded"  # matches counted from the screen don't say what type each chest was

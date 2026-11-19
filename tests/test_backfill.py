@@ -4,9 +4,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import backfill
-from matches import MatchLog
-from replays import ReplayCount
+from chest_tracker.counting import backfill
+from chest_tracker.data.matches import MatchLog
+from chest_tracker.counting.replays import ReplayCount
 
 SINCE = datetime(2026, 11, 1)
 

@@ -8,11 +8,11 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import backup
-import notices
-from adjustments import Adjustments
-from matches import MatchLog
-from settings import Stats
+from chest_tracker.data import backup
+from chest_tracker.data import notices
+from chest_tracker.data.adjustments import Adjustments
+from chest_tracker.data.matches import MatchLog
+from chest_tracker.data.settings import Stats
 
 NOW = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
 

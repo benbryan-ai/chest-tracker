@@ -251,37 +251,27 @@ Build `Chest-Tracker.exe`:
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-| File | What it holds |
+The code is in the `chest_tracker` folder, grouped by purpose:
+
+| Folder | What it holds |
 | --- | --- |
-| `detection.py` | The rules that decide whether a search counts |
-| `watcher.py` | Screen capture, input checks, and sending to Discord |
-| `wheel.py` | Scroll wheel detection through Windows raw input |
-| `gamepad.py` | Xbox-style controller buttons through XInput |
-| `bot.py`, `store.py` | The Discord bot and its database |
-| `ui.py`, `widgets.py`, `overlay.py` | The app window, animated chest and in-game count badge |
-| `boxfilter.py`, `tools/train_box_filter.py` | Skips ammo and fruit boxes by color, and the script that retrains it from screenshots |
-| `updater.py`, `version.py` | Checks GitHub for new releases and installs them; the version number |
-| `reports.py` | The group game report: waits for teammates and ranks them |
-| `matches.py`, `recap.py` | Chests per match and its history, and the end-of-match screen check |
-| `replays.py`, `scanner/` | Reads a finished match's replay with the bundled `chest-scan` program (.NET) |
-| `backfill.py`, `importer.py`, `adjustments.py` | Counting past replays, importing from other trackers, and the editable list of total changes |
-| `boards.py`, `store.py`, `bot.py` | The leaderboard periods and categories, the bot's database, and the Discord bot |
-| `sharecard.py`, `sharecard_render.py` | The data and drawing for the share card |
-| `report.py`, `timefmt.py` | The Report tab's numbers and the clock format |
-| `content.py`, `treasures.py`, `marks.py` | The treasure hunt data, chances and finds, and hand-ticked prizes |
-| `backup.py`, `notices.py`, `startup.py` | Backups, developer messages, and starting with Windows |
-| `chime.py` | The optional counted-chest sound, generated in code |
-| `fortnite_stats.py` | The optional Fortnite-API player-stats lookup |
-| `settings.py`, `protocol.py` | Saved settings and counts, and the rules for names, webhook links and messages |
-| `tools/make_screenshots.py` | Draws the README screenshots from sample data (`python tools/make_screenshots.py docs/images`) |
+| `chest_tracker/counting/` | Counting chests: `detection.py` (the rules that decide whether a search counts), `watcher.py` (screen capture, input checks, sending to Discord), `boxfilter.py` (skips ammo and fruit boxes by color), `recap.py` (the end-of-match screen check), `wheel.py` and `gamepad.py` (scroll wheel and Xbox-style controller input), `replays.py` and `backfill.py` (reading finished replays with the bundled `chest-scan` program, and counting past ones), `chime.py` (the optional sound, generated in code) |
+| `chest_tracker/data/` | What the app saves: `settings.py`, `matches.py` (chests per match and the history), `adjustments.py` (the editable list of total changes), `marks.py` and `treasures.py` and `content.py` (the treasure hunt data, chances, finds and hand-ticked prizes), `backup.py`, `importer.py` (from other trackers), `notices.py` (developer messages), `timefmt.py` |
+| `chest_tracker/stats/` | Numbers built from the data: `goals.py`, `boards.py` (leaderboard periods and categories), `report.py`, `heatmap.py` (the chest map), `sharecard.py` (the share card's data), `fortnite_stats.py` (the optional Fortnite-API lookup) |
+| `chest_tracker/group/` | The Discord side: `bot.py`, `store.py` (the bot's database), `protocol.py` (the rules for names, webhook links and messages), `reports.py` (the group game report) |
+| `chest_tracker/gui/` | The windows: `ui.py`, `widgets.py`, `overlay.py` (the in-game count badge), `sharecard_render.py` (drawing the share card) |
+| `chest_tracker/system/` | `updater.py` (checks GitHub for new releases and installs them), `version.py` (the version number), `startup.py` (starting with Windows), `paths.py` (where bundled files live) |
+| `chest_tracker/app.py`, `app.py` | Starts the app (`app.py` in the main folder just calls it) |
+| `assets/`, `console/`, `scanner/`, `docs/` | Bundled images and data, the console counter page, the replay reader (.NET), and the README pictures |
+| `tools/` | `train_box_filter.py` retrains the box filter from screenshots, `make_screenshots.py` draws the README pictures from sample data (`python tools/make_screenshots.py docs/images`), `make_icon.py` draws the icon |
 | `tests/` | The automated tests. They run on any OS, since the Windows calls are stubbed |
 
 To publish a release:
-1. Change `VERSION` in `version.py` (for example to `1.2.0`).
+1. Change `VERSION` in `chest_tracker/system/version.py` (for example to `1.2.0`).
 2. Add a `## v1.2.0` section at the top of `RELEASE_NOTES.md` (below its intro) listing what changed. This becomes the release text and the app's "What's new".
 3. Commit and push, then tag it: `git tag v1.2.0` and `git push origin v1.2.0`.
 
-The **Release** workflow checks the tag matches `version.py` and that the notes section exists, runs the tests, builds `Chest-Tracker.exe` and attaches it to a GitHub release, which is what the download link and the in-app updater serve.
+The **Release** workflow checks the tag matches `chest_tracker/system/version.py` and that the notes section exists, runs the tests, builds `Chest-Tracker.exe` and attaches it to a GitHub release, which is what the download link and the in-app updater serve.
 
 To test only the replay reader, tag `scanner-v0.0.1` (any `scanner-v*` tag) and the **Scanner** workflow builds `chest-scan.exe` for you.
 

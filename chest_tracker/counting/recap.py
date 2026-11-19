@@ -11,6 +11,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from chest_tracker.system.paths import resource_folder
 
 REFERENCE_HEIGHT = 1200  # the screen height the bundled button images were taken at
 BUTTON_SPACING = 84  # at the reference height, RETURN TO LOBBY sits this far above PLAY AGAIN
@@ -19,7 +20,7 @@ SCALE_STEPS = (0.92, 1.0, 1.08)  # a little slack around the expected size
 
 
 def _assets() -> Path:
-    return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "assets"
+    return resource_folder() / "assets"
 
 
 class RecapDetector:

@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen
 
-ASSETS = Path(__file__).resolve().parent / "assets"
+ASSETS = Path(__file__).resolve().parent.parent / "assets"
 
 
 def draw(size: int) -> QImage:

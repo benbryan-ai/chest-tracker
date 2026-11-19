@@ -13,6 +13,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from chest_tracker.system.paths import resource_folder
 
 # The prompt word as it looks at 1920x1200. Distances below are measured at that size and
 # scaled by how big the word turns out to be in the real frame.
@@ -151,5 +152,5 @@ def load_bundled() -> "BoxFilter | None":
     """The filter built from the examples that ship with the app (None if they are missing)."""
     import sys
 
-    folder = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    folder = resource_folder()
     return BoxFilter.load(folder / "assets" / "box_model.npz")

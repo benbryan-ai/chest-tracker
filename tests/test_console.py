@@ -1,8 +1,7 @@
 import re
 from pathlib import Path
 
-import protocol
-
+from chest_tracker.group import protocol
 PAGE = (Path(__file__).resolve().parent.parent / "console" / "index.html").read_text(encoding="utf-8")
 
 

@@ -14,18 +14,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from bot import ingest
-from detection import (
+from chest_tracker.group.bot import ingest
+from chest_tracker.counting.detection import (
     CANCELLED, OPENED, PENDING, ChestDetector, PromptMatcher, scene_similarity, scene_thumb,
 )
-from protocol import format_delta, is_webhook_url, name_problem, parse_delta
-from store import Store
-from settings import Settings, Stats, import_old_setup
-from watcher import Sender, WatchEngine, best_monitor, check_webhook, key_code, selection_too_big
-from widgets import MatchMeter
-import watcher
-
-
+from chest_tracker.group.protocol import format_delta, is_webhook_url, name_problem, parse_delta
+from chest_tracker.group.store import Store
+from chest_tracker.data.settings import Settings, Stats, import_old_setup
+from chest_tracker.counting.watcher import Sender, WatchEngine, best_monitor, check_webhook, key_code, selection_too_big
+from chest_tracker.gui.widgets import MatchMeter
+from chest_tracker.counting import watcher
 def play(frames, step=0.08):
     """Run (prompt, key) or (prompt, key, looked_away) frames and count finished chests."""
     detector = ChestDetector()
@@ -1135,10 +1133,10 @@ def test_the_new_match_key_is_heard_only_in_fortnite(monkeypatch):
 
 # --- match posts, party codes and the group report ---
 
-from bot import collect_match
-from protocol import format_match, normalize_party, parse_match, party_problem
-from reports import GroupReports, format_report
-from watcher import MatchPoster
+from chest_tracker.group.bot import collect_match
+from chest_tracker.group.protocol import format_match, normalize_party, parse_match, party_problem
+from chest_tracker.group.reports import GroupReports, format_report
+from chest_tracker.counting.watcher import MatchPoster
 
 
 def test_match_posts_round_trip_and_are_not_chest_posts():
@@ -1265,8 +1263,7 @@ def test_match_poster_queue_is_capped(tmp_path):
 def test_the_bot_posts_the_group_report_in_the_match_channel(store, monkeypatch):
     import asyncio
 
-    import bot as bot_module
-
+    from chest_tracker.group import bot as bot_module
     sent = []
 
     class Channel:
@@ -1301,7 +1298,6 @@ def test_the_bot_posts_the_group_report_in_the_match_channel(store, monkeypatch)
 
 
 def test_one_channel_for_both_jobs_never_hijacks_chest_posts(store):
-    import bot as bot_module
-
+    from chest_tracker.group import bot as bot_module
     client = bot_module.ChestBot(store, 7, lambda *a: None, match_channel_id=7)
     assert client.match_channel_id is None

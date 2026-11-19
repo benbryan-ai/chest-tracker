@@ -11,10 +11,10 @@ from pathlib import Path
 import discord
 from discord import app_commands
 
-import boards
-from protocol import parse_delta, parse_fortnite_stats, parse_match, parse_match_stats
-from reports import GroupReports, format_report
-from store import Store
+from chest_tracker.stats import boards
+from chest_tracker.group.protocol import parse_delta, parse_fortnite_stats, parse_match, parse_match_stats
+from chest_tracker.group.reports import GroupReports, format_report
+from chest_tracker.group.store import Store
 
 log = logging.getLogger("chest-tracker")
 

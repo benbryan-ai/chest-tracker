@@ -8,7 +8,7 @@ import shutil
 from datetime import date
 from pathlib import Path
 
-from store import Store
+from chest_tracker.group.store import Store
 
 log = logging.getLogger("chest-tracker")
 

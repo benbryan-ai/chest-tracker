@@ -4,10 +4,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import content
-import protocol
-import treasures
-from watcher import MatchPoster
+from chest_tracker.data import content
+from chest_tracker.group import protocol
+from chest_tracker.data import treasures
+from chest_tracker.counting.watcher import MatchPoster
 
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
 
@@ -50,8 +50,7 @@ def test_treasure_lines_are_queued_in_order_and_survive_a_restart(tmp_path):
 
 
 def test_a_treasure_line_is_posted_as_is(tmp_path, monkeypatch):
-    import watcher
-
+    from chest_tracker.counting import watcher
     sent = []
 
     class Ok:

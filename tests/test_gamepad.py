@@ -1,8 +1,8 @@
 import pytest
 
-import gamepad
-import watcher
-from gamepad import GamepadListener, buttons_down, is_pad_name, pad_label
+from chest_tracker.counting import gamepad
+from chest_tracker.counting import watcher
+from chest_tracker.counting.gamepad import GamepadListener, buttons_down, is_pad_name, pad_label
 
 
 class FakePads:

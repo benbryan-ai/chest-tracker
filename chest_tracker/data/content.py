@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 import requests
+from chest_tracker.system.paths import resource_folder
 
 log = logging.getLogger("chest-tracker")
 
@@ -194,7 +195,7 @@ def _read(path: Path) -> Content | None:
 
 
 def bundled_path() -> Path:
-    return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "assets" / "content.json"
+    return resource_folder() / "assets" / "content.json"
 
 
 class ContentStore:

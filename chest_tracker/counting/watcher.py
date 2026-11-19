@@ -19,12 +19,12 @@ import mss
 import numpy as np
 import requests
 
-from boxfilter import SKIP_BELOW
-from detection import CANCELLED, OPENED, PENDING, ChestDetector, PromptMatcher, scene_similarity, scene_thumb
-from gamepad import is_pad_name, shared_gamepad
-from protocol import format_delta, format_match, is_webhook_url
-from settings import read_json
-from wheel import WheelListener
+from chest_tracker.counting.boxfilter import SKIP_BELOW
+from chest_tracker.counting.detection import CANCELLED, OPENED, PENDING, ChestDetector, PromptMatcher, scene_similarity, scene_thumb
+from chest_tracker.counting.gamepad import is_pad_name, shared_gamepad
+from chest_tracker.group.protocol import format_delta, format_match, is_webhook_url
+from chest_tracker.data.settings import read_json
+from chest_tracker.counting.wheel import WheelListener
 
 log = logging.getLogger("chest-tracker")
 

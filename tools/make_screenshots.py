@@ -22,8 +22,7 @@ if sys.platform != "win32":  # the Windows-only calls aren't needed to draw the 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-import ui
-
+from chest_tracker.gui import ui
 WIDTH, HEIGHT = 1200, 760
 
 
@@ -121,8 +120,8 @@ def main(out: Path) -> None:
             app.processEvents()
         win.setFocus()
         win.grab().save(str(out / f"{name}.png"))
-    import sharecard
-    import sharecard_render
+    from chest_tracker.stats import sharecard
+    from chest_tracker.gui import sharecard_render
     card = sharecard.collect(win.matches.history, "last7", date.today(), "2026-11-01", "Alex", 30, win.stats.today)
     sharecard_render.render(card).save(str(out / "card.png"))
     win._shut_down()

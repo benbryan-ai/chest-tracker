@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import boards
-import protocol
-from bot import ingest
-from store import Store
+from chest_tracker.stats import boards
+from chest_tracker.group import protocol
+from chest_tracker.group.bot import ingest
+from chest_tracker.group.store import Store
 from test_ui import app, window  # noqa: F401  (the fixtures)
 
 ROW = {"wins": 120, "kills": 3400, "matches": 900, "kd": 4.376, "minutesPlayed": 14500}
@@ -97,7 +97,7 @@ def test_sharing_stats_only_posts_changes(window):
 
 def test_nothing_is_looked_up_unless_sharing_is_on(window, monkeypatch):
     called = []
-    monkeypatch.setattr("ui.fetch_stats", lambda *a: called.append(a))
+    monkeypatch.setattr("chest_tracker.gui.ui.fetch_stats", lambda *a: called.append(a))
     window.settings.set(fortnite_api_key="k", fortnite_account_name="Sam",
                         webhook_url="https://discord.com/api/webhooks/1/x", player_name="Sam")
     window.share_fortnite_stats()

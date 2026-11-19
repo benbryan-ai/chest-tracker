@@ -7,7 +7,7 @@ from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-from widgets import ASH, BONE, DUSK, EMBER, GOLD, GOLD_LIGHT, LINE, MINT
+from chest_tracker.gui.widgets import ASH, BONE, DUSK, EMBER, GOLD, GOLD_LIGHT, LINE, MINT
 
 
 BASE_WIDTH, BASE_HEIGHT = 220, 76

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
+from chest_tracker.system.paths import resource_folder
 
 log = logging.getLogger("chest-tracker")
 
@@ -50,7 +51,7 @@ def default_replay_folder() -> Path:
 def find_scanner() -> Path | None:
     """The chest-scan program that ships with the app (or sits next to it), if there is one."""
     override = os.environ.get("CHEST_TRACKER_SCANNER")
-    folders = [Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))]
+    folders = [resource_folder()]
     if getattr(sys, "frozen", False):
         folders.append(Path(sys.executable).resolve().parent)
     candidates = ([Path(override)] if override else []) + [f / SCANNER_NAME for f in folders]

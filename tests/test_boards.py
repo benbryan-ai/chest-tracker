@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import boards
-import protocol
-from bot import ingest
-from store import Store
+from chest_tracker.stats import boards
+from chest_tracker.group import protocol
+from chest_tracker.group.bot import ingest
+from chest_tracker.group.store import Store
 from test_ui import app, window  # noqa: F401  (the fixtures)
 
 

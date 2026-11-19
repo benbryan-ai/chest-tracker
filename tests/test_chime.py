@@ -3,8 +3,8 @@ import wave
 
 import pytest
 
-import chime
-from chime import Chime, clamp_volume, make_chime
+from chest_tracker.counting import chime
+from chest_tracker.counting.chime import Chime, clamp_volume, make_chime
 
 
 def read(data: bytes):

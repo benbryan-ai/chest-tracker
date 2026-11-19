@@ -9,8 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from matches import MatchLog
-from recap import RecapDetector
+from chest_tracker.data.matches import MatchLog
+from chest_tracker.counting.recap import RecapDetector
 
 NOW = datetime(2026, 11, 14, 15, 0, 0)
 

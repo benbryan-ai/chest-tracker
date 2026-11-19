@@ -4,11 +4,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import backup
-import treasures
-from marks import TreasureMarks
+from chest_tracker.data import backup
+from chest_tracker.data import treasures
+from chest_tracker.data.marks import TreasureMarks
 from test_content import BUNDLED
-from content import parse
+from chest_tracker.data.content import parse
 from test_ui import app, window  # noqa: F401  (the fixtures)
 
 
@@ -67,7 +67,7 @@ def share(window):
 
 
 def test_an_import_is_sent_to_the_group(window):
-    import importer
+    from chest_tracker.data import importer
     share(window)
     window.sender.wake.clear()
     window.apply_import(importer.ImportOffer("ChestCounter", "Sam", 60, [], 0))

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta, timezone
 from pathlib import Path
 
-from replays import _utc_to_local
+from chest_tracker.counting.replays import _utc_to_local
 
 SEASON_MAPS = ("/delilah/maps/delilah_terrain",)  # the map ChestCounter counts: this season's
 BR_PLAYLIST = re.compile(

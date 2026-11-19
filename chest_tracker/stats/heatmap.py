@@ -2,8 +2,7 @@
 
 from datetime import datetime
 
-import boards
-
+from chest_tracker.stats import boards
 PERIODS = (("all", "All matches"), ("season", "This season"), ("week", "This week"), ("last", "Last match"))
 MIN_SPAN = 150_000  # never zoom in closer than 1.5 km across, so a few chests don't fill the whole map
 STEP = 50_000  # the map's size is rounded up to this, so the grid lines land on round numbers

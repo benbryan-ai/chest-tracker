@@ -23,43 +23,43 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSlider, QSpinBox, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
-from bot import BotRunner
-from boxfilter import load_bundled
-from chime import DEFAULT_VOLUME, MAX_VOLUME, MIN_VOLUME, Chime, clamp_volume
-from detection import CANCELLED, PENDING, PromptMatcher
-from fortnite_stats import FortniteStatsError, fetch_stats
-from gamepad import is_pad_name, pad_label, shared_gamepad
-from matches import MatchLog
-from overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
-from protocol import MAX_NAME_LENGTH, format_treasure, name_problem, normalize_party, party_problem, is_webhook_url
-from recap import RecapDetector
-import backfill
-import importer
-import replays
-import backup
-import content
-import notices
-import report
-import startup
-import treasures
-import boards
-import goals
-import heatmap
-import sharecard
-import sharecard_render
-import protocol
-import timefmt
-import updater
-from adjustments import Adjustments
-from marks import TreasureMarks
-from version import VERSION
-from settings import Settings, Stats
-from store import Store
-from watcher import (
+from chest_tracker.group.bot import BotRunner
+from chest_tracker.counting.boxfilter import load_bundled
+from chest_tracker.counting.chime import DEFAULT_VOLUME, MAX_VOLUME, MIN_VOLUME, Chime, clamp_volume
+from chest_tracker.counting.detection import CANCELLED, PENDING, PromptMatcher
+from chest_tracker.stats.fortnite_stats import FortniteStatsError, fetch_stats
+from chest_tracker.counting.gamepad import is_pad_name, pad_label, shared_gamepad
+from chest_tracker.data.matches import MatchLog
+from chest_tracker.gui.overlay import MAX_OPACITY, MAX_SCALE, MIN_OPACITY, MIN_SCALE, ChestOverlay, clamp
+from chest_tracker.group.protocol import MAX_NAME_LENGTH, format_treasure, name_problem, normalize_party, party_problem, is_webhook_url
+from chest_tracker.counting.recap import RecapDetector
+from chest_tracker.counting import backfill
+from chest_tracker.data import importer
+from chest_tracker.counting import replays
+from chest_tracker.data import backup
+from chest_tracker.data import content
+from chest_tracker.data import notices
+from chest_tracker.stats import report
+from chest_tracker.system import startup
+from chest_tracker.data import treasures
+from chest_tracker.stats import boards
+from chest_tracker.stats import goals
+from chest_tracker.stats import heatmap
+from chest_tracker.stats import sharecard
+from chest_tracker.gui import sharecard_render
+from chest_tracker.group import protocol
+from chest_tracker.data import timefmt
+from chest_tracker.system import updater
+from chest_tracker.data.adjustments import Adjustments
+from chest_tracker.data.marks import TreasureMarks
+from chest_tracker.system.version import VERSION
+from chest_tracker.data.settings import Settings, Stats
+from chest_tracker.group.store import Store
+from chest_tracker.counting.watcher import (
     VK_F8, VK_F9, VK_F10, KeyEdge, MatchPoster, Sender, StatsPoster, post_image, WatchEngine, capture_focused_screen, check_webhook, fortnite_focused,
     foreground_window_bounds, interact_check, selection_too_big, key_code
 )
-from widgets import (
+from chest_tracker.gui.widgets import (
     ASH, BONE, DUSK, EMBER, GOLD, GOLD_DEEP, GOLD_LIGHT, LINE, MINT, NIGHT, RAISED,
     ChestStage, GoalBar, LeaderRow, MatchMeter, StepBadge, TallyMarks,
 )

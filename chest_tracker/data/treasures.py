@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from content import KIND_NAMES, Content, Odds, Prize, Week
+from chest_tracker.data.content import KIND_NAMES, Content, Odds, Prize, Week
 
 
 @dataclass

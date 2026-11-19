@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import goals
+from chest_tracker.stats import goals
 from test_ui import app, window  # noqa: F401  (the fixtures)
 
 

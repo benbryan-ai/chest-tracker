@@ -3,8 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
-import goals
-
+from chest_tracker.stats import goals
 PERIODS = (("week", "This week"), ("last7", "Last 7 days"), ("month", "This month"), ("season", "This season"))
 MAX_BARS = 16
 

@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from replays import SLACK, ReplayCount, run_scan
+from chest_tracker.counting.replays import SLACK, ReplayCount, run_scan
 
 BATCH = 8  # files per scanner run, so one slow replay can't stall the rest
 

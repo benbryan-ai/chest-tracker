@@ -14,11 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-import backup
-import importer
-import notices
-import replays
-import ui
+from chest_tracker.data import backup
+from chest_tracker.data import importer
+from chest_tracker.data import notices
+from chest_tracker.counting import replays
+from chest_tracker.gui import ui
 from datetime import datetime
 
 
@@ -579,9 +579,7 @@ def test_an_unusable_party_code_in_the_settings_file_is_not_posted(window):
 
 # --- updates ---
 
-import updater as updater_module
-
-
+from chest_tracker.system import updater as updater_module
 def a_release(version="9.9.9"):
     return updater_module.Release(f"v{version}", "Fixes things.", "https://github.com/x/y/releases/download/v/z.exe",
                                   10, "ab" * 32, "https://github.com/x/y/releases/tag/v")

@@ -10,11 +10,11 @@ import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
-from adjustments import Adjustments
-from marks import TreasureMarks
-from matches import MatchLog
-from settings import Stats, _write_json, read_json
-from version import VERSION
+from chest_tracker.data.adjustments import Adjustments
+from chest_tracker.data.marks import TreasureMarks
+from chest_tracker.data.matches import MatchLog
+from chest_tracker.data.settings import Stats, _write_json, read_json
+from chest_tracker.system.version import VERSION
 
 FILES = ("stats.json", "matches.json", "adjustments.json", "treasure_marks.json")
 MAX_BYTES = 40_000_000

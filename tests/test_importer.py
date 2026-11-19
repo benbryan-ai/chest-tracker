@@ -4,9 +4,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import importer
-from adjustments import Adjustments
-from matches import MatchLog
+from chest_tracker.data import importer
+from chest_tracker.data.adjustments import Adjustments
+from chest_tracker.data.matches import MatchLog
 
 
 def l_match(chests, destroyed=0, playlist="Playlist_DefaultSquad", map_="/Delilah/Maps/Delilah_Terrain",

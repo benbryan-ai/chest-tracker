@@ -1,6 +1,6 @@
 from datetime import datetime
 
-import heatmap
+from chest_tracker.stats import heatmap
 from test_ui import app, window  # noqa: F401
 
 

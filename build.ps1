@@ -33,5 +33,6 @@ if (Test-Path $scannerExe) {
     --add-data "$PSScriptRoot\assets\content.json;assets" `
     @scannerArgs `
     --exclude-module tkinter `
+    --paths "$PSScriptRoot" `
     --distpath . --workpath build --specpath build `
     app.py

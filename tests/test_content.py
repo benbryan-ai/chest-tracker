@@ -9,10 +9,10 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import content
-import treasures
-from content import ContentStore, Invalid, parse
-from replays import clean_times, clean_treasures
+from chest_tracker.data import content
+from chest_tracker.data import treasures
+from chest_tracker.data.content import ContentStore, Invalid, parse
+from chest_tracker.counting.replays import clean_times, clean_treasures
 
 BUNDLED = json.loads((Path(__file__).resolve().parent.parent / "assets" / "content.json").read_text(encoding="utf-8"))
 

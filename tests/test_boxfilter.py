@@ -7,8 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import boxfilter
-from boxfilter import BoxFilter, FEATURE_COUNT, SKIP_BELOW, feature_vector, find_prompt_word, object_crop
+from chest_tracker.counting import boxfilter
+from chest_tracker.counting.boxfilter import BoxFilter, FEATURE_COUNT, SKIP_BELOW, feature_vector, find_prompt_word, object_crop
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import replays
-from replays import ReplayCount, parse_scan, pick_replay
+from chest_tracker.counting import replays
+from chest_tracker.counting.replays import ReplayCount, parse_scan, pick_replay
 
 T0 = datetime(2026, 11, 14, 21, 0, 0)
 

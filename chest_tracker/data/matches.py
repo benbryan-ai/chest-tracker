@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import replays
-from settings import _write_json, read_json
+from chest_tracker.counting import replays
+from chest_tracker.data.settings import _write_json, read_json
 
 MAX_HISTORY = 5000
 STALE_AFTER = timedelta(hours=2)  # a match left open this long when the app starts is finished

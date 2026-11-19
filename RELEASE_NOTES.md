@@ -3,12 +3,13 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
-## v2.0.0
+## v2.0.1
 
 The chest map and a console counter. If you're updating from an older version, the notes for v1.11.0 and the ones before it (below) also apply.
 
 - **Chest map.** A new **Map** tab shows where you searched chests, from your replays, as glowing spots over a kilometre grid. Filter by all matches, this season, this week or your last match.
 - **Use a map picture.** Replays don't include the island's picture, so choose one yourself with **Map picture...** (a screenshot of the in-game map works). A picture of the whole island (like the ones on map sites) lines up by itself; for other pictures, drag the dots to move them and scroll to resize them. Your alignment is remembered.
+- **Tidier code.** The Python files are now grouped into folders inside `chest_tracker/` (counting, data, stats, group, gui, system). Nothing changes in how the app works; the README lists what's where.
 - **Older matches.** Positions are only saved for matches counted from a replay with this version. Run **Count my past replays** once (Edit total...) to fill in your earlier matches.
 - **Console counter.** `console/index.html` is a free phone-friendly page for console players: tap +1 for each chest and it posts to your group's Discord webhook in the app's format. Turn on GitHub Pages (Settings > Pages > Source: GitHub Actions) to host it.
 

@@ -3,8 +3,8 @@
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 
-from sharecard import CardData
-from widgets import ASH, BONE, DUSK, GOLD, GOLD_LIGHT, LINE, MINT, NIGHT, display_font
+from chest_tracker.stats.sharecard import CardData
+from chest_tracker.gui.widgets import ASH, BONE, DUSK, GOLD, GOLD_LIGHT, LINE, MINT, NIGHT, display_font
 
 WIDTH, HEIGHT = 1200, 675
 

@@ -7,8 +7,8 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import updater
-from updater import (CheckResult, Release, UpdateError, check_latest, clean_up_leftovers, download_update,
+from chest_tracker.system import updater
+from chest_tracker.system.updater import (CheckResult, Release, UpdateError, check_latest, clean_up_leftovers, download_update,
                      install_update, is_newer, parse_version, plain_notes, relaunch)
 
 REPO = "benbryan-ai/chest-tracker"
