@@ -73,3 +73,11 @@ def test_map_picture_is_copied_and_remembered(window, tmp_path):
     page.view.placed.emit(0.3, 0.4, 0.2)
     assert window.settings["map_scale"] == 0.3
     page.grab()
+
+
+def test_reference_picture_gets_the_known_placement():
+    assert heatmap.fit_to_picture([(1, 2)], 992 / 1470) == heatmap.REFERENCE_PLACEMENT
+    assert heatmap.fit_to_picture([(1, 2)], 0.5) != heatmap.REFERENCE_PLACEMENT
+    # the ring of searches at the north-east of the island lands in the picture's top right
+    u, v = heatmap.place((90000, -60000), *heatmap.REFERENCE_PLACEMENT)
+    assert 0.65 < u < 0.75 and 0.08 < v < 0.12

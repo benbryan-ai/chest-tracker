@@ -80,9 +80,18 @@ def place(point: tuple[int, int], scale: float, dx: float, dy: float) -> tuple[f
     return dx + point[0] / 100_000 * scale, dy + point[1] / 100_000 * scale
 
 
+# The placement that lines the replay positions up with the full-island picture most people use (the whole island
+# in a 1470 x 992 picture). It was checked against real replays: the searches landed on the right towns and biomes.
+REFERENCE_ASPECT = 992 / 1470
+REFERENCE_PLACEMENT = (500 / 1470, 552 / 1470, 440 / 1470)
+
+
 def fit_to_picture(points: list[tuple[int, int]], aspect: float) -> tuple[float, float, float]:
-    """A starting placement: the dots' centre in the middle of the picture, covering about 40% of its width.
+    """A starting placement. A picture shaped like the reference island picture gets the known alignment; any other
+    picture gets the dots' centre in the middle, covering about 40% of its width, to be dragged into place.
     aspect is height / width of the picture. Returns (scale, dx, dy)."""
+    if abs(aspect - REFERENCE_ASPECT) < 0.02:
+        return REFERENCE_PLACEMENT
     if not points:
         return DEFAULT_SCALE, 0.5, 0.5 * aspect
     xs = [p[0] for p in points]
