@@ -18,7 +18,7 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea,
     QSizePolicy, QSlider, QSpinBox, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
@@ -99,11 +99,11 @@ QLineEdit:hover {{ border-color: {ASH}; }}
 QLineEdit:focus {{ border: 1px solid {GOLD}; }}
 QComboBox {{ background: {NIGHT}; border: 1px solid {LINE}; border-radius: 5px; padding: 8px 10px; min-height: 20px; }}
 QComboBox:hover {{ border-color: {ASH}; }}
-QSpinBox {{ background: {NIGHT}; border: 1px solid {LINE}; border-radius: 5px; padding: 8px 10px; min-width: 70px;
+QSpinBox, QDoubleSpinBox {{ background: {NIGHT}; border: 1px solid {LINE}; border-radius: 5px; padding: 8px 10px; min-width: 70px;
            selection-background-color: {GOLD}; selection-color: {NIGHT}; }}
-QSpinBox:hover {{ border-color: {ASH}; }}
-QSpinBox:focus {{ border: 1px solid {GOLD}; }}
-QSpinBox::up-button, QSpinBox::down-button {{ width: 0; border: none; }}
+QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {ASH}; }}
+QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid {GOLD}; }}
+QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 0; border: none; }}
 QComboBox:focus {{ border: 1px solid {GOLD}; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox QAbstractItemView {{ background: {DUSK}; border: 1px solid {LINE}; selection-background-color: #2E2916; }}
@@ -2344,6 +2344,7 @@ class MapView(QWidget):
         self.scale, self.dx, self.dy = heatmap.DEFAULT_SCALE, 0.5, 0.5
         self._drag: QPointF | None = None
         self.setMinimumSize(360, 360)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_points(self, points: list[tuple[int, int]]) -> None:
@@ -2394,7 +2395,8 @@ class MapView(QWidget):
         painter.setClipping(False)
         painter.setPen(QColor(BONE))
         painter.setFont(QFont(self.font().family(), 9))
-        painter.drawText(QPointF(box.left() + 10, box.bottom() - 10), "Drag to move the dots, scroll to resize them")
+        painter.drawText(QPointF(box.left() + 10, box.bottom() - 10),
+                         "Drag to move the dots, scroll to resize them (Shift for finer), arrow keys to nudge")
 
     def _paint_grid(self, painter: QPainter) -> None:
         side = min(self.width(), self.height()) - 2
@@ -2446,8 +2448,31 @@ class MapView(QWidget):
             return
         box = self._picture_box()
         at = ((event.position().x() - box.left()) / box.width(), (event.position().y() - box.top()) / box.width())
-        factor = 1.1 if event.angleDelta().y() > 0 else 1 / 1.1
+        fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        factor = heatmap.wheel_factor(event.angleDelta().y(), fine)
         self.scale, self.dx, self.dy = heatmap.zoom_about(self.scale, self.dx, self.dy, at, factor)
+        self.update()
+        self.placed.emit(self.scale, self.dx, self.dy)
+
+    def resize_by(self, factor: float) -> None:
+        """Resize the dots about the middle of the picture (the + and - buttons)."""
+        if self.picture is None:
+            return
+        ratio = self.picture.height() / self.picture.width()
+        self.scale, self.dx, self.dy = heatmap.zoom_about(self.scale, self.dx, self.dy, (0.5, 0.5 * ratio), factor)
+        self.update()
+        self.placed.emit(self.scale, self.dx, self.dy)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Arrow keys move the dots a pixel at a time (five with Shift)."""
+        steps = {Qt.Key.Key_Left: (-1, 0), Qt.Key.Key_Right: (1, 0), Qt.Key.Key_Up: (0, -1), Qt.Key.Key_Down: (0, 1)}
+        if self.picture is None or event.key() not in steps:
+            super().keyPressEvent(event)
+            return
+        pixels = 5 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
+        width = self._picture_box().width()
+        self.dx += steps[event.key()][0] * pixels / width
+        self.dy += steps[event.key()][1] * pixels / width
         self.update()
         self.placed.emit(self.scale, self.dx, self.dy)
 
@@ -2494,6 +2519,30 @@ class MapPage(QWidget):
         self.count = label("", "muted")
         row.addWidget(self.count)
         layout.addLayout(row)
+        fit = QHBoxLayout()
+        fit.addWidget(label("Dots size", "muted"))
+        self.smaller = QPushButton("\u2212")
+        self.smaller.setToolTip("Make the dots a little smaller.")
+        self.smaller.clicked.connect(lambda: self.view.resize_by(1 / heatmap.BUTTON_STEP))
+        fit.addWidget(self.smaller)
+        self.larger = QPushButton("+")
+        self.larger.setToolTip("Make the dots a little larger.")
+        self.larger.clicked.connect(lambda: self.view.resize_by(heatmap.BUTTON_STEP))
+        fit.addWidget(self.larger)
+        self.width_box = QDoubleSpinBox()
+        self.width_box.setDecimals(3)
+        self.width_box.setRange(0.5, 50.0)
+        self.width_box.setSingleStep(0.01)
+        self.width_box.setSuffix(" km across the picture")
+        self.width_box.setToolTip("How many kilometres the whole picture shows. Type a number to set the size exactly.")
+        self.width_box.valueChanged.connect(self.set_width)
+        fit.addWidget(self.width_box)
+        self.save_default = QPushButton("Save as this picture's default")
+        self.save_default.setToolTip("Reset position will come back to this alignment.")
+        self.save_default.clicked.connect(self.save_as_default)
+        fit.addWidget(self.save_default)
+        fit.addStretch(1)
+        layout.addLayout(fit)
         self.view = MapView()
         self.view.placed.connect(self.save_placement)
         layout.addWidget(self.view, 1)
@@ -2507,9 +2556,27 @@ class MapPage(QWidget):
         path = self.picture_path()
         picture = QPixmap(str(path)) if path is not None and path.is_file() else None
         self.view.set_picture(picture)
-        self.reset.setEnabled(self.view.picture is not None)
+        have = self.view.picture is not None
+        for widget in (self.reset, self.smaller, self.larger, self.width_box, self.save_default):
+            widget.setEnabled(have)
         settings = self.window_.settings
         self.view.set_placement(float(settings["map_scale"]), float(settings["map_dx"]), float(settings["map_dy"]))
+        self.show_width(float(settings["map_scale"]))
+
+    def show_width(self, scale: float) -> None:
+        self.width_box.blockSignals(True)
+        self.width_box.setValue(heatmap.width_km(scale))
+        self.width_box.blockSignals(False)
+
+    def set_width(self, km: float) -> None:
+        """Typing a size resizes the dots about the middle of the picture."""
+        if self.view.picture is None or km <= 0:
+            return
+        self.view.resize_by(heatmap.scale_for_width(km) / self.view.scale)
+
+    def save_as_default(self) -> None:
+        v = self.view
+        self.window_.settings.set(map_default=[v.scale, v.dx, v.dy])
 
     def choose_picture(self) -> None:
         chosen, _ = QFileDialog.getOpenFileName(self, "Choose a map picture", "", "Pictures (*.png *.jpg *.jpeg *.webp)")
@@ -2529,7 +2596,7 @@ class MapPage(QWidget):
             shutil.copyfile(source, target)
         except (OSError, shutil.SameFileError):
             target = source
-        self.window_.settings.set(map_image=str(target))
+        self.window_.settings.set(map_image=str(target), map_default=[])
         self.load_picture()
         self.reset_placement()
         return True
@@ -2538,12 +2605,17 @@ class MapPage(QWidget):
         if self.view.picture is None:
             return
         aspect = self.view.picture.height() / self.view.picture.width()
-        scale, dx, dy = heatmap.fit_to_picture(self.view.points, aspect)
+        saved = self.window_.settings["map_default"]
+        if isinstance(saved, list) and len(saved) == 3 and all(isinstance(n, (int, float)) for n in saved):
+            scale, dx, dy = (float(n) for n in saved)
+        else:
+            scale, dx, dy = heatmap.fit_to_picture(self.view.points, aspect)
         self.view.set_placement(scale, dx, dy)
         self.save_placement(scale, dx, dy)
 
     def save_placement(self, scale: float, dx: float, dy: float) -> None:
         self.window_.settings.set(map_scale=scale, map_dx=dx, map_dy=dy)
+        self.show_width(scale)
 
     def rotate(self) -> None:
         self.window_.settings.set(map_rotation=(int(self.window_.settings["map_rotation"]) + 1) % 4)

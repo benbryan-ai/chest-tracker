@@ -3,6 +3,15 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v2.0.2
+
+Finer control over the chest map. If you're updating from an older version, the notes for v2.0.1 and the ones before it (below) also apply.
+
+- **Smaller resizing steps.** Scrolling on the map now changes the dots' size by 2% a notch instead of 10%, and Shift+scroll by half a percent.
+- **Dots size controls.** New **-** and **+** buttons resize the dots a little at a time, and you can type exactly how many kilometres the picture shows across.
+- **Arrow keys.** Click the map, then use the arrow keys to move the dots a pixel at a time (five with Shift).
+- **Save as this picture's default.** Once the dots line up, save that alignment and **Reset position** will come back to it.
+
 ## v2.0.1
 
 The chest map and a console counter. If you're updating from an older version, the notes for v1.11.0 and the ones before it (below) also apply.

@@ -64,6 +64,7 @@ DEFAULTS = {
     "map_scale": 0.2,
     "map_dx": 0.5,
     "map_dy": 0.5,
+    "map_default": [],
     "fortnite_posted": {},
 }
 

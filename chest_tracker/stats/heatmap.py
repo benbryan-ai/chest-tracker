@@ -73,6 +73,23 @@ def km(centimetres: int) -> str:
 
 DEFAULT_SCALE = 0.2
 MIN_SCALE, MAX_SCALE = 0.02, 2.0
+WHEEL_STEP = 1.02  # one scroll notch changes the size by 2%
+FINE_WHEEL_STEP = 1.005  # holding Shift
+BUTTON_STEP = 1.01  # the + and - buttons
+
+
+def width_km(scale: float) -> float:
+    """How many kilometres the picture's full width shows."""
+    return 1 / scale
+
+
+def scale_for_width(km: float) -> float:
+    return min(MAX_SCALE, max(MIN_SCALE, 1 / km)) if km > 0 else DEFAULT_SCALE
+
+
+def wheel_factor(delta: int, fine: bool = False) -> float:
+    """The size change for a scroll of `delta` (120 per notch; positive makes the dots larger)."""
+    return (FINE_WHEEL_STEP if fine else WHEEL_STEP) ** (delta / 120)
 
 
 def place(point: tuple[int, int], scale: float, dx: float, dy: float) -> tuple[float, float]:
