@@ -36,3 +36,40 @@ def test_map_page_renders(window):
     page.rotate()
     assert window.settings["map_rotation"] == 1
     page.grab()
+
+
+def test_placement_helpers():
+    scale, dx, dy = heatmap.fit_to_picture([(0, 0), (200000, 100000)], 0.7)
+    u, v = heatmap.place((100000, 50000), scale, dx, dy)
+    assert abs(u - 0.5) < 1e-9 and abs(v - 0.35) < 1e-9  # the dots' centre sits in the middle of the picture
+    new_scale, ndx, ndy = heatmap.zoom_about(scale, dx, dy, (0.3, 0.2), 2.0)
+    assert new_scale == scale * 2
+    before = heatmap.place((50000, 20000), scale, dx, dy)
+    after = heatmap.place((50000, 20000), new_scale, ndx, ndy)
+    assert (after[0] - 0.3) == (before[0] - 0.3) * 2 or abs((after[0] - 0.3) - (before[0] - 0.3) * 2) < 1e-9
+    assert heatmap.zoom_about(heatmap.MAX_SCALE, 0, 0, (0, 0), 5)[0] == heatmap.MAX_SCALE
+
+
+def test_map_picture_is_copied_and_remembered(window, tmp_path):
+    from pathlib import Path
+
+    from PySide6.QtGui import QImage
+
+    image = QImage(300, 200, QImage.Format.Format_RGB32)
+    image.fill(0x336699)
+    source = tmp_path / "somewhere" / "island.png"
+    source.parent.mkdir()
+    assert image.save(str(source))
+    window.matches.history.append({"start": "2026-11-18T10:00:00", "end": "2026-11-18T10:20:00",
+                                   "chests": 2, "chest_spots": [[0, 0], [100000, 50000]]})
+    page = window.map_page
+    page.refresh()
+    assert page.set_picture_file(source)
+    saved = Path(window.settings["map_image"])
+    assert saved.is_file() and saved.parent == window.settings.path.parent
+    assert page.view.picture is not None
+    assert page.reset.isEnabled()
+    page.view.set_placement(0.3, 0.4, 0.2)
+    page.view.placed.emit(0.3, 0.4, 0.2)
+    assert window.settings["map_scale"] == 0.3
+    page.grab()

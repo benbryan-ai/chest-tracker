@@ -110,7 +110,7 @@ The screen can't see chests that are broken rather than opened, but Fortnite's r
 
 ### Chest map
 
-The **Map** tab shows where you stood each time you searched a chest, taken from your replays, as glowing spots (brighter means more chests) over a kilometre grid. Choose all matches, this season, this week or your last match. Replays record positions but not the island's picture, so the map has no artwork. Use **Turn** and **Mirror** to match the direction of the in-game map (it's remembered). Only matches counted from a replay have positions, so after updating run **Count my past replays** once to fill in older ones.
+The **Map** tab shows where you stood each time you searched a chest, taken from your replays, as glowing spots (brighter means more chests) over a kilometre grid. Choose all matches, this season, this week or your last match. Replays record positions but not the island's picture, so by default the map is a plain grid. Click **Map picture...** and choose a picture of the island (a screenshot of the in-game map works; the app keeps a copy). Then **drag** the dots to move them and **scroll** to resize them until they line up with the picture, using **Turn** and **Mirror** if they come out the wrong way round. Your alignment is remembered, and **Reset position** starts it over. When a new season changes the island, choose a new picture and line it up again. No map picture is included with the app. Only matches counted from a replay have positions, so after updating run **Count my past replays** once to fill in older ones.
 
 <p align="center">
   <img src="docs/images/map.png" alt="The chest map with glowing spots where chests were searched, using sample data" width="70%">

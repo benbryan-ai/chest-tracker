@@ -60,6 +60,10 @@ DEFAULTS = {
     "share_fortnite": False,
     "map_rotation": 0,
     "map_mirror": False,
+    "map_image": "",
+    "map_scale": 0.2,
+    "map_dx": 0.5,
+    "map_dy": 0.5,
     "fortnite_posted": {},
 }
 

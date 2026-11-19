@@ -2,6 +2,7 @@
 
 import ctypes
 import logging
+import shutil
 import sqlite3
 import threading
 import time
@@ -2330,11 +2331,18 @@ class SettingsPage(QWidget):
 
 
 class MapView(QWidget):
-    """Draws the chest map: a grid for scale and a soft gold glow wherever chests were searched."""
+    """Draws the chest map: a soft gold glow wherever chests were searched, over a grid or over a map picture.
+
+    With a picture, drag to move the dots and scroll to resize them until they match the picture."""
+
+    placed = Signal(float, float, float)  # scale, dx, dy after the person drags or scrolls
 
     def __init__(self):
         super().__init__()
         self.points: list[tuple[int, int]] = []
+        self.picture: QPixmap | None = None
+        self.scale, self.dx, self.dy = heatmap.DEFAULT_SCALE, 0.5, 0.5
+        self._drag: QPointF | None = None
         self.setMinimumSize(360, 360)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -2342,9 +2350,53 @@ class MapView(QWidget):
         self.points = points
         self.update()
 
+    def set_picture(self, picture: QPixmap | None) -> None:
+        self.picture = picture if picture is not None and not picture.isNull() else None
+        self.setCursor(Qt.CursorShape.OpenHandCursor if self.picture else Qt.CursorShape.ArrowCursor)
+        self.update()
+
+    def set_placement(self, scale: float, dx: float, dy: float) -> None:
+        self.scale, self.dx, self.dy = scale, dx, dy
+        self.update()
+
+    def _picture_box(self) -> QRectF:
+        """Where the picture is drawn: as large as fits, keeping its shape."""
+        ratio = self.picture.height() / self.picture.width()
+        width = min(self.width() - 2, (self.height() - 2) / ratio)
+        return QRectF((self.width() - width) / 2, (self.height() - width * ratio) / 2, width, width * ratio)
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if self.picture is not None:
+            self._paint_on_picture(painter)
+        else:
+            self._paint_grid(painter)
+
+    def _glow(self, painter: QPainter, centre: QPointF, radius: float) -> None:
+        glow = QRadialGradient(centre, radius)
+        glow.setColorAt(0.0, QColor(255, 80, 60, 170))
+        glow.setColorAt(1.0, QColor(255, 80, 60, 0))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(glow)
+        painter.drawEllipse(centre, radius, radius)
+        painter.setBrush(QColor(255, 255, 255))
+        painter.drawEllipse(centre, 2.0, 2.0)
+
+    def _paint_on_picture(self, painter: QPainter) -> None:
+        box = self._picture_box()
+        painter.drawPixmap(box, self.picture, QRectF(self.picture.rect()))
+        painter.setClipRect(box)
+        for point in self.points:
+            u, v = heatmap.place(point, self.scale, self.dx, self.dy)
+            self._glow(painter, QPointF(box.left() + u * box.width(), box.top() + v * box.width()), max(8.0, box.width() * 0.012))
+        painter.setClipping(False)
+        painter.setPen(QColor(BONE))
+        painter.setFont(QFont(self.font().family(), 9))
+        painter.drawText(QPointF(box.left() + 10, box.bottom() - 10), "Drag to move the dots, scroll to resize them")
+
+    def _paint_grid(self, painter: QPainter) -> None:
         side = min(self.width(), self.height()) - 2
         box = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
         painter.setPen(QPen(QColor(LINE), 1))
@@ -2354,34 +2406,50 @@ class MapView(QWidget):
         scale = side / size
         step = heatmap.grid_step(size)
         painter.setFont(QFont(self.font().family(), 8))
-        first_x = -(-left // step) * step
-        for gx in range(first_x, left + size + 1, step):
+        painter.setPen(QPen(QColor(LINE), 1))
+        for gx in range(-(-left // step) * step, left + size + 1, step):
             x = box.left() + (gx - left) * scale
-            painter.setPen(QPen(QColor(LINE), 1))
             painter.drawLine(QPointF(x, box.top() + 6), QPointF(x, box.bottom() - 6))
-        first_y = -(-top // step) * step
-        for gy in range(first_y, top + size + 1, step):
+        for gy in range(-(-top // step) * step, top + size + 1, step):
             y = box.top() + (gy - top) * scale
-            painter.setPen(QPen(QColor(LINE), 1))
             painter.drawLine(QPointF(box.left() + 6, y), QPointF(box.right() - 6, y))
-        painter.setPen(Qt.PenStyle.NoPen)
-        radius = max(7.0, side * 0.018)
         for px, py in self.points:
-            centre = QPointF(box.left() + (px - left) * scale, box.top() + (py - top) * scale)
-            glow = QRadialGradient(centre, radius)
-            glow.setColorAt(0.0, QColor(240, 185, 60, 120))
-            glow.setColorAt(1.0, QColor(240, 185, 60, 0))
-            painter.setBrush(glow)
-            painter.drawEllipse(centre, radius, radius)
-            painter.setBrush(QColor(GOLD_LIGHT))
-            painter.drawEllipse(centre, 2.0, 2.0)
-        # the scale bar
+            self._glow(painter, QPointF(box.left() + (px - left) * scale, box.top() + (py - top) * scale), max(7.0, side * 0.018))
         bar_length = step * scale
         painter.setPen(QPen(QColor(BONE), 2))
         y = box.bottom() - 16
         painter.drawLine(QPointF(box.left() + 14, y), QPointF(box.left() + 14 + bar_length, y))
         painter.setPen(QColor(ASH))
         painter.drawText(QPointF(box.left() + 14, y - 6), heatmap.km(step))
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self.picture is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._drag = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag is not None and self.picture is not None:
+            width = self._picture_box().width()
+            self.dx += (event.position().x() - self._drag.x()) / width
+            self.dy += (event.position().y() - self._drag.y()) / width
+            self._drag = event.position()
+            self.update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._drag is not None:
+            self._drag = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self.placed.emit(self.scale, self.dx, self.dy)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if self.picture is None:
+            return
+        box = self._picture_box()
+        at = ((event.position().x() - box.left()) / box.width(), (event.position().y() - box.top()) / box.width())
+        factor = 1.1 if event.angleDelta().y() > 0 else 1 / 1.1
+        self.scale, self.dx, self.dy = heatmap.zoom_about(self.scale, self.dx, self.dy, at, factor)
+        self.update()
+        self.placed.emit(self.scale, self.dx, self.dy)
 
 
 class MapPage(QWidget):
@@ -2394,9 +2462,10 @@ class MapPage(QWidget):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.addWidget(label("Chest map", "heading"))
         layout.addWidget(label(
-            "Where you stood each time you searched a chest, from your replays. Brighter means more chests. "
-            "Only matches counted from a replay have positions; use Count my past replays (Edit total) to add older "
-            "ones. The island picture isn't included, so match the direction with the game's map using Turn and Mirror.",
+            "Where you stood each time you searched a chest, from your replays. Brighter means more chests. Only "
+            "matches counted from a replay have positions; use Count my past replays (Edit total) to add older ones. "
+            "Replays don't include the island's picture: choose a picture of the map, then drag and scroll the dots "
+            "until they line up (use Turn and Mirror if they're the wrong way round). It's remembered.",
             "muted", wrap=True,
         ))
         row = QHBoxLayout()
@@ -2406,19 +2475,75 @@ class MapPage(QWidget):
         self.period.activated.connect(lambda _: self.refresh())
         row.addWidget(self.period)
         self.turn = QPushButton("Turn")
-        self.turn.setToolTip("Turn the map a quarter turn.")
+        self.turn.setToolTip("Turn the dots a quarter turn.")
         self.turn.clicked.connect(self.rotate)
         row.addWidget(self.turn)
         self.mirror = QCheckBox("Mirror")
         self.mirror.setChecked(bool(window.settings["map_mirror"]))
         self.mirror.toggled.connect(self.set_mirror)
         row.addWidget(self.mirror)
+        self.choose = QPushButton("Map picture...")
+        self.choose.setToolTip("Pick a picture of the map (a screenshot of the in-game map works).")
+        self.choose.clicked.connect(self.choose_picture)
+        row.addWidget(self.choose)
+        self.reset = QPushButton("Reset position")
+        self.reset.setToolTip("Put the dots back in the middle of the picture.")
+        self.reset.clicked.connect(self.reset_placement)
+        row.addWidget(self.reset)
         row.addStretch(1)
         self.count = label("", "muted")
         row.addWidget(self.count)
         layout.addLayout(row)
         self.view = MapView()
+        self.view.placed.connect(self.save_placement)
         layout.addWidget(self.view, 1)
+        self.load_picture()
+
+    def picture_path(self) -> Path | None:
+        name = str(self.window_.settings["map_image"])
+        return Path(name) if name else None
+
+    def load_picture(self) -> None:
+        path = self.picture_path()
+        picture = QPixmap(str(path)) if path is not None and path.is_file() else None
+        self.view.set_picture(picture)
+        self.reset.setEnabled(self.view.picture is not None)
+        settings = self.window_.settings
+        self.view.set_placement(float(settings["map_scale"]), float(settings["map_dx"]), float(settings["map_dy"]))
+
+    def choose_picture(self) -> None:
+        chosen, _ = QFileDialog.getOpenFileName(self, "Choose a map picture", "", "Pictures (*.png *.jpg *.jpeg *.webp)")
+        if not chosen:
+            return
+        self.set_picture_file(Path(chosen))
+
+    def set_picture_file(self, source: Path) -> bool:
+        """Keep a copy of the picture with the app's data, so it still works if the original moves."""
+        picture = QPixmap(str(source))
+        if picture.isNull():
+            QMessageBox.warning(self, "Map picture", "That file couldn't be opened as a picture.")
+            return False
+        folder = self.window_.settings.path.parent
+        target = folder / ("map-picture" + source.suffix.lower())
+        try:
+            shutil.copyfile(source, target)
+        except (OSError, shutil.SameFileError):
+            target = source
+        self.window_.settings.set(map_image=str(target))
+        self.load_picture()
+        self.reset_placement()
+        return True
+
+    def reset_placement(self) -> None:
+        if self.view.picture is None:
+            return
+        aspect = self.view.picture.height() / self.view.picture.width()
+        scale, dx, dy = heatmap.fit_to_picture(self.view.points, aspect)
+        self.view.set_placement(scale, dx, dy)
+        self.save_placement(scale, dx, dy)
+
+    def save_placement(self, scale: float, dx: float, dy: float) -> None:
+        self.window_.settings.set(map_scale=scale, map_dx=dx, map_dy=dy)
 
     def rotate(self) -> None:
         self.window_.settings.set(map_rotation=(int(self.window_.settings["map_rotation"]) + 1) % 4)

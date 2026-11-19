@@ -66,3 +66,36 @@ def grid_step(size: int) -> int:
 def km(centimetres: int) -> str:
     value = centimetres / 100_000
     return f"{value:g} km"
+
+
+# --- Placing the dots on a map picture --------------------------------------------------------------------------
+# A picture is addressed in fractions of its own width. A point lands at ((dx + x_km * scale), (dy + y_km * scale)),
+# where dx/dy say where the world origin sits and scale is how much of the picture's width a kilometre covers.
+
+DEFAULT_SCALE = 0.2
+MIN_SCALE, MAX_SCALE = 0.02, 2.0
+
+
+def place(point: tuple[int, int], scale: float, dx: float, dy: float) -> tuple[float, float]:
+    return dx + point[0] / 100_000 * scale, dy + point[1] / 100_000 * scale
+
+
+def fit_to_picture(points: list[tuple[int, int]], aspect: float) -> tuple[float, float, float]:
+    """A starting placement: the dots' centre in the middle of the picture, covering about 40% of its width.
+    aspect is height / width of the picture. Returns (scale, dx, dy)."""
+    if not points:
+        return DEFAULT_SCALE, 0.5, 0.5 * aspect
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    span_km = max(max(xs) - min(xs), max(ys) - min(ys), MIN_SPAN) / 100_000
+    scale = min(MAX_SCALE, max(MIN_SCALE, 0.4 / span_km))
+    centre_x = (min(xs) + max(xs)) / 2 / 100_000
+    centre_y = (min(ys) + max(ys)) / 2 / 100_000
+    return scale, 0.5 - centre_x * scale, 0.5 * aspect - centre_y * scale
+
+
+def zoom_about(scale: float, dx: float, dy: float, at: tuple[float, float], factor: float) -> tuple[float, float, float]:
+    """Change the scale while keeping the spot under `at` (picture fractions) where it is."""
+    new_scale = min(MAX_SCALE, max(MIN_SCALE, scale * factor))
+    ratio = new_scale / scale
+    return new_scale, at[0] - (at[0] - dx) * ratio, at[1] - (at[1] - dy) * ratio

@@ -8,7 +8,7 @@ Add a new `## vX.Y.Z` section at the top before tagging a release.
 The chest map and a console counter. If you're updating from an older version, the notes for v1.11.0 and the ones before it (below) also apply.
 
 - **Chest map.** A new **Map** tab shows where you searched chests, from your replays, as glowing spots over a kilometre grid. Filter by all matches, this season, this week or your last match.
-- **Match the game's map.** Replays don't include the island's picture, so use **Turn** and **Mirror** to line the map up with the one in the game. Your choice is remembered.
+- **Use a map picture.** Replays don't include the island's picture, so choose one yourself with **Map picture...** (a screenshot of the in-game map works). Drag the dots to move them, scroll to resize them, and use **Turn** and **Mirror** until they line up with the picture. Your alignment is remembered.
 - **Older matches.** Positions are only saved for matches counted from a replay with this version. Run **Count my past replays** once (Edit total...) to fill in your earlier matches.
 - **Console counter.** `console/index.html` is a free phone-friendly page for console players: tap +1 for each chest and it posts to your group's Discord webhook in the app's format. Turn on GitHub Pages (Settings > Pages > Source: GitHub Actions) to host it.
 
