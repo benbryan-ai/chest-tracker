@@ -11,9 +11,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QAction, QColor, QDesktopServices, QGuiApplication, QIcon, QImage, QKeyEvent, QMouseEvent, QPainter, QPen, QPixmap,
+    QAction, QColor, QFont, QDesktopServices, QGuiApplication, QIcon, QImage, QKeyEvent, QMouseEvent, QPainter, QPen, QPixmap, QRadialGradient,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
@@ -43,6 +43,7 @@ import startup
 import treasures
 import boards
 import goals
+import heatmap
 import sharecard
 import sharecard_render
 import protocol
@@ -72,7 +73,7 @@ QScrollArea {{ border: none; }}
 #updateBanner {{ background: {DUSK}; border-bottom: 1px solid {GOLD_DEEP}; }}
 #brand {{ font-family: "Bahnschrift SemiBold Condensed"; font-size: 23px; }}
 #tab {{ background: transparent; border: none; border-bottom: 3px solid transparent; border-radius: 0;
-        padding: 16px 16px 13px 16px; color: {ASH}; font-size: 15px; font-weight: 500; }}
+        padding: 16px 12px 13px 12px; color: {ASH}; font-size: 15px; font-weight: 500; }}
 #tab:hover {{ color: {BONE}; }}
 #tab:checked {{ color: {GOLD}; border-bottom-color: {GOLD}; }}
 #tab:focus {{ color: {BONE}; background: {DUSK}; }}
@@ -2328,6 +2329,113 @@ class SettingsPage(QWidget):
         self.startup_note.setText("")
 
 
+class MapView(QWidget):
+    """Draws the chest map: a grid for scale and a soft gold glow wherever chests were searched."""
+
+    def __init__(self):
+        super().__init__()
+        self.points: list[tuple[int, int]] = []
+        self.setMinimumSize(360, 360)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def set_points(self, points: list[tuple[int, int]]) -> None:
+        self.points = points
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        side = min(self.width(), self.height()) - 2
+        box = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
+        painter.setPen(QPen(QColor(LINE), 1))
+        painter.setBrush(QColor(DUSK))
+        painter.drawRoundedRect(box, 10, 10)
+        left, top, size = heatmap.frame(self.points)
+        scale = side / size
+        step = heatmap.grid_step(size)
+        painter.setFont(QFont(self.font().family(), 8))
+        first_x = -(-left // step) * step
+        for gx in range(first_x, left + size + 1, step):
+            x = box.left() + (gx - left) * scale
+            painter.setPen(QPen(QColor(LINE), 1))
+            painter.drawLine(QPointF(x, box.top() + 6), QPointF(x, box.bottom() - 6))
+        first_y = -(-top // step) * step
+        for gy in range(first_y, top + size + 1, step):
+            y = box.top() + (gy - top) * scale
+            painter.setPen(QPen(QColor(LINE), 1))
+            painter.drawLine(QPointF(box.left() + 6, y), QPointF(box.right() - 6, y))
+        painter.setPen(Qt.PenStyle.NoPen)
+        radius = max(7.0, side * 0.018)
+        for px, py in self.points:
+            centre = QPointF(box.left() + (px - left) * scale, box.top() + (py - top) * scale)
+            glow = QRadialGradient(centre, radius)
+            glow.setColorAt(0.0, QColor(240, 185, 60, 120))
+            glow.setColorAt(1.0, QColor(240, 185, 60, 0))
+            painter.setBrush(glow)
+            painter.drawEllipse(centre, radius, radius)
+            painter.setBrush(QColor(GOLD_LIGHT))
+            painter.drawEllipse(centre, 2.0, 2.0)
+        # the scale bar
+        bar_length = step * scale
+        painter.setPen(QPen(QColor(BONE), 2))
+        y = box.bottom() - 16
+        painter.drawLine(QPointF(box.left() + 14, y), QPointF(box.left() + 14 + bar_length, y))
+        painter.setPen(QColor(ASH))
+        painter.drawText(QPointF(box.left() + 14, y - 6), heatmap.km(step))
+
+
+class MapPage(QWidget):
+    """Where on the island you've been searching chests, from your replays."""
+
+    def __init__(self, window: "MainWindow"):
+        super().__init__()
+        self.window_ = window
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.addWidget(label("Chest map", "heading"))
+        layout.addWidget(label(
+            "Where you stood each time you searched a chest, from your replays. Brighter means more chests. "
+            "Only matches counted from a replay have positions; use Count my past replays (Edit total) to add older "
+            "ones. The island picture isn't included, so match the direction with the game's map using Turn and Mirror.",
+            "muted", wrap=True,
+        ))
+        row = QHBoxLayout()
+        self.period = QComboBox()
+        for key, text in heatmap.PERIODS:
+            self.period.addItem(text, key)
+        self.period.activated.connect(lambda _: self.refresh())
+        row.addWidget(self.period)
+        self.turn = QPushButton("Turn")
+        self.turn.setToolTip("Turn the map a quarter turn.")
+        self.turn.clicked.connect(self.rotate)
+        row.addWidget(self.turn)
+        self.mirror = QCheckBox("Mirror")
+        self.mirror.setChecked(bool(window.settings["map_mirror"]))
+        self.mirror.toggled.connect(self.set_mirror)
+        row.addWidget(self.mirror)
+        row.addStretch(1)
+        self.count = label("", "muted")
+        row.addWidget(self.count)
+        layout.addLayout(row)
+        self.view = MapView()
+        layout.addWidget(self.view, 1)
+
+    def rotate(self) -> None:
+        self.window_.settings.set(map_rotation=(int(self.window_.settings["map_rotation"]) + 1) % 4)
+        self.refresh()
+
+    def set_mirror(self, on: bool) -> None:
+        self.window_.settings.set(map_mirror=on)
+        self.refresh()
+
+    def refresh(self) -> None:
+        w = self.window_
+        found = heatmap.spots(w.matches.history, self.period.currentData(), datetime.now(), w.settings["season_start"])
+        turned = [heatmap.orient(p, int(w.settings["map_rotation"]), bool(w.settings["map_mirror"])) for p in found]
+        self.view.set_points(turned)
+        self.count.setText(f"{len(found):,} chests shown" if found else "No positions yet")
+
+
 class TreasuresPage(QWidget):
     def __init__(self, window: "MainWindow"):
         super().__init__()
@@ -2564,12 +2672,13 @@ class MainWindow(QMainWindow):
         self._update_hour()
         self.report = ReportPage(self)
         self.treasures_page = TreasuresPage(self)
+        self.map_page = MapPage(self)
         self.settings_page = SettingsPage(self)
         self.nav = QButtonGroup(self)
         for index, (name, page) in enumerate(
             (("Tracker", self.tracker), ("Setup", self.setup), ("Leaderboards", self.group),
              ("Fortnite Stats", self.fortnite_stats), ("Report", self.report), ("Settings", self.settings_page),
-             ("Treasures", self.treasures_page))
+             ("Treasures", self.treasures_page), ("Map", self.map_page))
         ):
             self.stack.addWidget(page)
             button = QPushButton(name)
@@ -2983,7 +3092,7 @@ class MainWindow(QMainWindow):
         if found.note:
             log.info("Replay %s: %s", found.file, found.note)
         change = self.matches.apply_replay(record, found.chests, found.opened, found.broken, found.kinds,
-                                           found.treasures, found.chest_times)
+                                           found.treasures, found.chest_times, found.chest_spots)
         log.info("Replay %s: %d chests (%d opened, %d broken); screen had %d",
                  found.file, found.chests, found.opened, found.broken, record["chests"])
         changed = self.stats.add(change) if change else 0
@@ -3181,7 +3290,7 @@ class MainWindow(QMainWindow):
 
     def _page_shown(self, index: int) -> None:
         page = self.stack.widget(index)
-        if page is self.report or page is self.treasures_page:
+        if page is self.report or page is self.treasures_page or page is self.map_page:
             page.refresh()
 
     def refresh_content(self) -> None:

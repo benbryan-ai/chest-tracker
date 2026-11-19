@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chest Counter</title>
+<style>
+  :root { color-scheme: dark; --bg:#12141a; --card:#1c2029; --line:#2c3240; --gold:#f0b93c; --text:#eceff4; --muted:#8b93a5; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; padding:16px; min-height:100vh; }
+  main { width:100%; max-width:440px; }
+  h1 { font-size:22px; margin:8px 0 2px; }
+  p.muted, label span { color:var(--muted); font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  #count { font-size:84px; font-weight:700; text-align:center; color:var(--gold); line-height:1.1; }
+  .row { display:flex; gap:10px; margin-top:12px; }
+  button { flex:1; font:inherit; font-weight:600; padding:16px; border-radius:12px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  button.big { background:var(--gold); color:#1b1500; border:0; font-size:24px; padding:28px 16px; }
+  button:active { transform:scale(.97); }
+  input { width:100%; font:inherit; padding:12px; margin:6px 0 12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  #status { min-height:20px; text-align:center; font-size:14px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Chest Counter</h1>
+  <p class="muted">Tap once for each chest you search. Your total goes to your group's Discord, so the leaderboards count it.</p>
+  <div class="card">
+    <div id="count">0</div>
+    <div id="status"></div>
+    <button class="big" id="plus" style="width:100%;margin-top:12px">+1 chest</button>
+    <div class="row"><button id="minus">&minus;1 (undo)</button><button id="send">Retry unsent</button></div>
+  </div>
+  <div class="card">
+    <label><span>Your name (same as in the tracker)</span><input id="name" maxlength="32" autocomplete="off"></label>
+    <label><span>Discord webhook URL (from your group's owner)</span><input id="hook" autocomplete="off" placeholder="https://discord.com/api/webhooks/..."></label>
+    <p class="muted">Both are saved only in this browser. Nothing else is collected.</p>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+let total = store.get("total", 0);   // this device's running count
+let unsent = store.get("unsent", 0); // change not yet delivered to Discord
+$("name").value = store.get("name", "");
+$("hook").value = store.get("hook", "");
+const HOOK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+
+// Same text the Windows app posts, so the group bot counts it: "📦 chests (+1)"
+function message(amount) { return "\u{1F4E6} chests (" + (amount >= 0 ? "+" : "-") + Math.abs(amount) + ")"; }
+
+function draw(note) {
+  $("count").textContent = total;
+  $("status").textContent = note || (unsent ? unsent + " not sent yet" : "");
+}
+function save() { store.set("total", total); store.set("unsent", unsent); }
+
+let sending = false;
+async function flush() {
+  const name = $("name").value.trim(), hook = $("hook").value.trim();
+  store.set("name", name); store.set("hook", hook);
+  if (!unsent || sending) return;
+  if (!name || !HOOK.test(hook)) return draw("Add your name and webhook below to send");
+  sending = true;
+  const amount = unsent;
+  try {
+    const r = await fetch(hook, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: name, content: message(amount), allowed_mentions: { parse: [] } }) });
+    if (!r.ok) throw new Error(r.status);
+    unsent -= amount; save(); draw("Sent");
+  } catch { draw("Couldn't send, will retry"); }
+  sending = false;
+  if (unsent) setTimeout(flush, 4000);
+}
+function change(by) {
+  if (by < 0 && total <= 0) return;
+  total += by; unsent += by; save(); draw();
+  clearTimeout(change.t); change.t = setTimeout(flush, 1500); // batch quick taps into one post
+}
+$("plus").onclick = () => change(1);
+$("minus").onclick = () => change(-1);
+$("send").onclick = flush;
+$("name").onchange = $("hook").onchange = flush;
+draw();
+</script>
+</body>
+</html>

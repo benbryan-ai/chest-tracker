@@ -58,6 +58,8 @@ DEFAULTS = {
     "fortnite_stats_window": "lifetime",
     "fortnite_stats_cache": {},
     "share_fortnite": False,
+    "map_rotation": 0,
+    "map_mirror": False,
     "fortnite_posted": {},
 }
 

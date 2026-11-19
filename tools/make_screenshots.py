@@ -42,6 +42,7 @@ def sample_matches(content) -> list[dict]:
             "kinds": {"Chest": chests - 3, "Buried chest": 2, "Rare chest": 1},
             "chest_times": [int((start + timedelta(minutes=2 + k)).timestamp()) for k in range(chests)],
         }
+        record["chest_spots"] = sample_spots(index, chests)
         if index in (1, 4, 9) and prizes:
             prize = prizes[index % len(prizes)]
             record["treasures"] = [{
@@ -50,6 +51,18 @@ def sample_matches(content) -> list[dict]:
             }]
         history.append(record)
     return list(reversed(history))
+
+
+def sample_spots(seed: int, count: int) -> list[list[int]]:
+    """Made-up landing areas, so the sample map has some hot spots."""
+    import random
+    rng = random.Random(seed)
+    towns = [(-150000, -100000), (120000, -60000), (40000, 140000), (-60000, 90000)]
+    spots = []
+    for _ in range(count):
+        cx, cy = rng.choice(towns)
+        spots.append([int(rng.gauss(cx, 18000)), int(rng.gauss(cy, 18000))])
+    return spots
 
 
 def content_week_prize(win) -> str:
@@ -97,7 +110,7 @@ def main(out: Path) -> None:
     win.group.category_box.setCurrentIndex(win.group.category_box.findData("chests"))
     win.resize(WIDTH, HEIGHT)
     win.show()
-    shots = (("tracker", 0), ("setup", 1), ("leaderboards", 2), ("report", 4), ("treasures", 6), ("settings", 5))
+    shots = (("tracker", 0), ("setup", 1), ("leaderboards", 2), ("report", 4), ("treasures", 6), ("settings", 5), ("map", 7))
     for name, index in shots:
         win.go_to(index)
         win._page_shown(index)

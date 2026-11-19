@@ -150,7 +150,10 @@ static ScanResult Scan(FileInfo file, TimeSpan timeout)
         if (match.MatchStartUtc is DateTime started)
         {
             long Epoch(float seconds) => new DateTimeOffset(DateTime.SpecifyKind(started, DateTimeKind.Utc)).ToUnixTimeSeconds() + (long)seconds;
-            result.ChestTimes = match.Chests.Select(c => Epoch(c.TimeSeconds)).OrderBy(t => t).ToList();
+            var byTime = match.Chests.OrderBy(c => c.TimeSeconds).ToList();
+            result.ChestTimes = byTime.Select(c => Epoch(c.TimeSeconds)).ToList();
+            // Where the player stood at each search (same order as ChestTimes); null when the replay doesn't say.
+            result.ChestSpots = byTime.Select(c => c.X is float x && c.Y is float y ? new[] { (int)x, (int)y } : null).ToList();
             result.Treasures = match.TreasureFinds.Select(t => new TreasureOut
             {
                 Name = t.DisplayName,
@@ -196,6 +199,7 @@ internal sealed class ScanResult
     public int TeamChests { get; set; }
     /// <summary>When each counted chest was searched (Unix seconds, UTC): treasure odds depend on the hour.</summary>
     public List<long>? ChestTimes { get; set; }
+    public List<int[]?>? ChestSpots { get; set; }
     public List<TreasureOut>? Treasures { get; set; }
 }
 

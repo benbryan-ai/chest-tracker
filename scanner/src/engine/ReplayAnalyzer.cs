@@ -740,7 +740,7 @@ public sealed class ReplayAnalyzer : FortniteReplayReader.ReplayReader
         var interactions = _searches
             .Where(s => s.SearcherPawn is uint p && targetPawns.Contains(p) && (!s.Stale || StableKey(s.ActorKey)))
             .OrderBy(s => s.Time)
-            .Select(s => (s.Time, Kind: ChestKinds.Classify(s.Label), s.Label, s.ActorKey, s.Destroyed))
+            .Select(s => (s.Time, Kind: ChestKinds.Classify(s.Label), s.Label, s.ActorKey, s.Destroyed, Pawn: s.SearcherPawn))
             .ToList();
 
         var chests = new List<ChestRecord>();
@@ -758,8 +758,11 @@ public sealed class ReplayAnalyzer : FortniteReplayReader.ReplayReader
                 .Select(t => t.Item)
                 .ToList();
 
+            var where = search.Pawn is uint searcher ? PositionOf(searcher, search.Time) : null;
             chests.Add(new ChestRecord
             {
+                X = where is { } a ? MathF.Round(a.X) : null,
+                Y = where is { } b ? MathF.Round(b.Y) : null,
                 TimeSeconds = MathF.Round(search.Time, 1),
                 Kind = search.Kind,
                 Blueprint = search.Label,

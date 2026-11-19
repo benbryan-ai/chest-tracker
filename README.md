@@ -108,6 +108,18 @@ The screen can't see chests that are broken rather than opened, but Fortnite's r
 
 **Report > Share card...** makes the picture above for the period you choose. **Post to Discord** sends it to your match channel (or your chest channel if there isn't one) using your webhook; or copy it and paste it anywhere.
 
+### Chest map
+
+The **Map** tab shows where you stood each time you searched a chest, taken from your replays, as glowing spots (brighter means more chests) over a kilometre grid. Choose all matches, this season, this week or your last match. Replays record positions but not the island's picture, so the map has no artwork. Use **Turn** and **Mirror** to match the direction of the in-game map (it's remembered). Only matches counted from a replay have positions, so after updating run **Count my past replays** once to fill in older ones.
+
+<p align="center">
+  <img src="docs/images/map.png" alt="The chest map with glowing spots where chests were searched, using sample data" width="70%">
+</p>
+
+### Console counter
+
+Consoles can't run the app, but a phone browser can. `console/index.html` is a free, single-page counter: tap **+1 chest** for each chest, and it posts your total to your group's Discord webhook in the same format as the app, so the leaderboards count it. Enter the same player name you use in the app and the webhook URL from your group's owner; both stay only in that browser. To host it free, turn on GitHub Pages for your repository (**Settings > Pages > Source: GitHub Actions**); the included workflow publishes the page at `https://<your-account>.github.io/chest-tracker/`. Then bookmark it on your phone. It sends chest counts only, not match stats, opened/broken or treasures.
+
 ### Treasures
 
 The **Treasures** tab covers the Treasure Hunters hunt: the week's prizes (choose any week that has started), your chances, Treasure Hours, and your latest finds. Prizes found in a replay are ticked for you; tick any others by hand. If a treasure is found in a replay, a line goes to your match channel in Discord (you can turn this off in Settings), and during the hunt the overlay can show a Treasure Hour countdown.

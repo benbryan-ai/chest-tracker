@@ -3,6 +3,15 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v2.0.0
+
+The chest map and a console counter. If you're updating from an older version, the notes for v1.11.0 and the ones before it (below) also apply.
+
+- **Chest map.** A new **Map** tab shows where you searched chests, from your replays, as glowing spots over a kilometre grid. Filter by all matches, this season, this week or your last match.
+- **Match the game's map.** Replays don't include the island's picture, so use **Turn** and **Mirror** to line the map up with the one in the game. Your choice is remembered.
+- **Older matches.** Positions are only saved for matches counted from a replay with this version. Run **Count my past replays** once (Edit total...) to fill in your earlier matches.
+- **Console counter.** `console/index.html` is a free phone-friendly page for console players: tap +1 for each chest and it posts to your group's Discord webhook in the app's format. Turn on GitHub Pages (Settings > Pages > Source: GitHub Actions) to host it.
+
 ## v1.11.0
 
 The share card. If you're updating from an older version, the notes for v1.10.0 and the ones before it (below) also apply.

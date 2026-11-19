@@ -10,6 +10,9 @@ public sealed class ChestRecord
     public string Blueprint { get; set; } = "";
     /// <summary>True when the chest was destroyed by the player instead of being opened.</summary>
     public bool Destroyed { get; set; }
+    /// <summary>Where the player stood when they searched it (Unreal units, so centimetres), when the replay knows.</summary>
+    public float? X { get; set; }
+    public float? Y { get; set; }
     public List<string> Items { get; set; } = new();
     public List<string> TreasureItems { get; set; } = new();
 }

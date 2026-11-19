@@ -38,6 +38,7 @@ class ReplayCount:
     kinds: dict = field(default_factory=dict)  # "Chest": 12, "Buried chest": 2 ...
     treasures: list = field(default_factory=list)  # {"name", "kind", "golden", "at"}
     chest_times: list = field(default_factory=list)  # when each chest was searched, Unix seconds (UTC)
+    chest_spots: list = field(default_factory=list)  # where you stood at each search, [x, y] in centimetres (or None)
 
 
 def default_replay_folder() -> Path:
@@ -95,6 +96,21 @@ def clean_times(raw) -> list:
     return [t for t in raw[:MAX_TIMES] if isinstance(t, int) and not isinstance(t, bool) and 0 < t < 4_000_000_000]
 
 
+MAX_COORD = 2_000_000  # a few times the size of the island; anything bigger is a misread
+
+
+def clean_spots(raw) -> list:
+    """Where each chest was searched, as [x, y] whole numbers or None. Same order as the chest times."""
+    if not isinstance(raw, list):
+        return []
+    spots = []
+    for spot in raw[:MAX_TIMES]:
+        ok = (isinstance(spot, (list, tuple)) and len(spot) == 2
+              and all(isinstance(v, int) and not isinstance(v, bool) and abs(v) <= MAX_COORD for v in spot))
+        spots.append([spot[0], spot[1]] if ok else None)
+    return spots if any(spots) else []
+
+
 def clean_treasures(raw) -> list:
     """Treasure finds as {"name", "kind", "golden", "at"}; anything malformed is dropped."""
     found = []
@@ -129,7 +145,7 @@ def parse_scan(entry: dict) -> ReplayCount | None:
     note = str(entry.get("WhyNot") or "") if entry.get("CountsAsMatch") is False else ""
     return ReplayCount(str(entry.get("File", "")), chests, opened, broken, start, start + timedelta(seconds=seconds), note,
                        clean_kinds(entry.get("Kinds")), clean_treasures(entry.get("Treasures")),
-                       clean_times(entry.get("ChestTimes")))
+                       clean_times(entry.get("ChestTimes")), clean_spots(entry.get("ChestSpots")))
 
 
 def run_scan(scanner: Path, files: list[Path], timeout: float = SCAN_TIMEOUT) -> list[ReplayCount]:

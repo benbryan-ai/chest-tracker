@@ -31,7 +31,7 @@ class BackfillPlan:
 def _record(r: ReplayCount) -> dict:
     return {"start": r.start.isoformat(timespec="seconds"), "end": r.end.isoformat(timespec="seconds"),
             "chests": r.chests, "opened": r.opened, "broken": r.broken, "source": "replay", "kinds": r.kinds,
-            "treasures": r.treasures, "chest_times": r.chest_times}
+            "treasures": r.treasures, "chest_times": r.chest_times, "chest_spots": r.chest_spots}
 
 
 def scan_folder(
@@ -72,7 +72,8 @@ def make_plan(counts: list[ReplayCount], history: list[dict], since: datetime) -
         if covered and all(m.get("source") == "replay" for _, m in covered) and len(covered) == 1 \
                 and covered[0][1]["chests"] == r.chests:
             m = covered[0][1]
-            if (r.kinds and "kinds" not in m) or (r.chest_times and "chest_times" not in m):
+            if (r.kinds and "kinds" not in m) or (r.chest_times and "chest_times" not in m) \
+                    or (r.chest_spots and "chest_spots" not in m):
                 plan.replaced.append({"old": [m], "new": record})
                 plan.refreshed += 1
             else:

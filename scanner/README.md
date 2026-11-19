@@ -1,6 +1,6 @@
 # chest-scan
 
-Counts the chests a player searched in a Fortnite replay, including broken ones the screen can't see.
+Counts the chests a player searched (with `--json` it also lists where each was searched, as `ChestSpots`) in a Fortnite replay, including broken ones the screen can't see.
 Replays are only readable after the match ends.
 
     chest-scan [--json] [--timeout SECONDS] [replay or folder]...
