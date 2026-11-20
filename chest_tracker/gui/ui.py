@@ -2499,6 +2499,10 @@ class MapPage(QWidget):
             self.period.addItem(text, key)
         self.period.activated.connect(lambda _: self.refresh())
         row.addWidget(self.period)
+        self.match_box = QComboBox()
+        self.match_box.activated.connect(lambda _: self.refresh())
+        self.match_box.hide()
+        row.addWidget(self.match_box)
         self.turn = QPushButton("Turn")
         self.turn.setToolTip("Turn the dots a quarter turn.")
         self.turn.clicked.connect(self.rotate)
@@ -2543,6 +2547,8 @@ class MapPage(QWidget):
         fit.addWidget(self.save_default)
         fit.addStretch(1)
         layout.addLayout(fit)
+        self.areas = label("", "muted", wrap=True)
+        layout.addWidget(self.areas)
         self.view = MapView()
         self.view.placed.connect(self.save_placement)
         layout.addWidget(self.view, 1)
@@ -2627,7 +2633,22 @@ class MapPage(QWidget):
 
     def refresh(self) -> None:
         w = self.window_
-        found = heatmap.spots(w.matches.history, self.period.currentData(), datetime.now(), w.settings["season_start"])
+        single = self.period.currentData() == "match"
+        if single:
+            wanted = self.match_box.currentData()
+            options = heatmap.choices(w.matches.history)
+            self.match_box.blockSignals(True)
+            self.match_box.clear()
+            for start, text in options:
+                self.match_box.addItem(text, start)
+            index = self.match_box.findData(wanted)
+            self.match_box.setCurrentIndex(max(0, index))
+            self.match_box.blockSignals(False)
+        self.match_box.setVisible(single)
+        found = heatmap.spots(w.matches.history, self.period.currentData(), datetime.now(), w.settings["season_start"],
+                              self.match_box.currentData() or "")
+        areas = heatmap.top_areas(found)
+        self.areas.setText("Most searched: " + " · ".join(f"{name} ({count})" for name, count in areas) if areas else "")
         turned = [heatmap.orient(p, int(w.settings["map_rotation"]), bool(w.settings["map_mirror"])) for p in found]
         self.view.set_points(turned)
         self.count.setText(f"{len(found):,} chests shown" if found else "No positions yet")

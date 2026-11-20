@@ -3,15 +3,18 @@
 from datetime import datetime
 
 from chest_tracker.stats import boards
-PERIODS = (("all", "All matches"), ("season", "This season"), ("week", "This week"), ("last", "Last match"))
+PERIODS = (("all", "All matches"), ("season", "This season"), ("week", "This week"), ("last", "Last match"),
+           ("match", "A single match..."))
 MIN_SPAN = 150_000  # never zoom in closer than 1.5 km across, so a few chests don't fill the whole map
 STEP = 50_000  # the map's size is rounded up to this, so the grid lines land on round numbers
 
 
-def spots(history: list[dict], period: str, now: datetime, season_start: str = "") -> list[tuple[int, int]]:
+def spots(history: list[dict], period: str, now: datetime, season_start: str = "", match: str = "") -> list[tuple[int, int]]:
     """The positions of every chest searched in the period's matches that were read from a replay."""
     chosen = history
-    if period == "last":
+    if period == "match":
+        chosen = [m for m in history if m.get("start") == match]
+    elif period == "last":
         chosen = [m for m in history if m.get("chest_spots")][-1:]
     elif period in ("week", "season"):
         since = boards.period_start(period, now, season_start)
@@ -124,3 +127,48 @@ def zoom_about(scale: float, dx: float, dy: float, at: tuple[float, float], fact
     new_scale = min(MAX_SCALE, max(MIN_SCALE, scale * factor))
     ratio = new_scale / scale
     return new_scale, at[0] - (at[0] - dx) * ratio, at[1] - (at[1] - dy) * ratio
+
+
+def choices(history: list[dict], limit: int = 40) -> list[tuple[str, str]]:
+    """The recent matches that have positions, newest first, as (start, description) for a match picker."""
+    found = []
+    for record in reversed(history):
+        if record.get("chest_spots") and record.get("start"):
+            try:
+                when = datetime.fromisoformat(record["start"])
+            except ValueError:
+                continue
+            count = len([s for s in record["chest_spots"] if s])
+            found.append((record["start"], f"{when:%b} {when.day}, {when:%I:%M %p}".replace(" 0", " ") + f" - {count} chests"))
+            if len(found) >= limit:
+                break
+    return found
+
+
+# Town names with where they sit on the reference island picture (pixels in the 1470 x 992 picture). The map's
+# positions are the same in every season's picture only while the island stays the same; they're approximate, so
+# a result reads "near <town>".
+TOWN_PIXELS = (
+    ("Friendship Villa", 480, 175), ("Buggy's Beachhead", 700, 270), ("Lil' Uzi's Stronghold", 930, 240),
+    ("The Chest", 400, 305), ("Lantern Landing", 575, 440), ("Arlong Park", 370, 505),
+    ("Cursed Cavern", 815, 520), ("The S.S. Rocky", 1000, 570), ("Loguetown", 655, 705),
+    ("Windmill Village", 440, 765), ("Busy Bay", 985, 790), ("Plunder Port", 785, 870),
+)
+NEAR_TOWN = 30_000  # further than 300 m from every town counts as "elsewhere"
+
+
+def _pixel_to_world(px: float, py: float) -> tuple[float, float]:
+    scale, dx, dy = REFERENCE_PLACEMENT
+    return ((px / 1470 - dx) / scale * 100_000, (py / 1470 - dy) / scale * 100_000)
+
+
+def top_areas(points: list[tuple[int, int]], limit: int = 5) -> list[tuple[str, int]]:
+    """Where the searches were, as (name, count) with the busiest first. Uses the island's known coordinates,
+    so give it the points as the replay recorded them, before any turning or mirroring."""
+    towns = [(name, *_pixel_to_world(px, py)) for name, px, py in TOWN_PIXELS]
+    counts: dict[str, int] = {}
+    for x, y in points:
+        name, distance = min(((t[0], ((x - t[1]) ** 2 + (y - t[2]) ** 2) ** 0.5) for t in towns), key=lambda pair: pair[1])
+        key = f"Near {name}" if distance <= NEAR_TOWN else "Elsewhere"
+        counts[key] = counts.get(key, 0) + 1
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]

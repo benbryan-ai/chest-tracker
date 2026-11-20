@@ -124,3 +124,40 @@ def test_map_page_fine_controls(window, tmp_path):
     page.reset_placement()
     assert [round(n, 6) for n in (view.scale, view.dx, view.dy)] == [round(n, 6) for n in saved]
     page.grab()
+
+
+def test_single_match_and_areas():
+    history = [
+        {"start": "2026-11-17T09:05:00", "chest_spots": [[1, 2]]},
+        {"start": "2026-11-18T22:30:00", "chest_spots": [[5, 6], None, [7, 8]]},
+        {"start": "2026-11-19T10:00:00"},
+    ]
+    options = heatmap.choices(history)
+    assert [s for s, _ in options] == ["2026-11-18T22:30:00", "2026-11-17T09:05:00"]
+    assert "Nov 18, 10:30 PM - 2 chests" == options[0][1]
+    assert heatmap.spots(history, "match", datetime(2026, 11, 20), "", "2026-11-17T09:05:00") == [(1, 2)]
+    assert heatmap.spots(history, "match", datetime(2026, 11, 20), "", "nope") == []
+
+
+def test_top_areas_name_the_nearest_town():
+    x, y = heatmap._pixel_to_world(655, 705)  # Loguetown
+    near = [(int(x) + 1000, int(y) - 2000)] * 3
+    far_x, far_y = heatmap._pixel_to_world(1300, 950)  # open sea, far from every town
+    areas = heatmap.top_areas(near + [(int(far_x), int(far_y))])
+    assert areas[0] == ("Near Loguetown", 3)
+    assert areas[1] == ("Elsewhere", 1)
+    assert heatmap.top_areas([]) == []
+
+
+def test_map_page_single_match_picker(window):
+    window.matches.history[:] = [{"start": "2026-11-18T22:30:00", "end": "2026-11-18T22:50:00",
+                                  "chests": 1, "chest_spots": [[100000, 50000]]}]
+    page = window.map_page
+    page.period.setCurrentIndex(page.period.findData("match"))
+    page.refresh()
+    assert page.match_box.count() == 1 and not page.match_box.isHidden()
+    assert "1 chests" in page.count.text()
+    assert page.areas.text().startswith("Most searched:")
+    page.period.setCurrentIndex(page.period.findData("all"))
+    page.refresh()
+    assert page.match_box.isHidden()

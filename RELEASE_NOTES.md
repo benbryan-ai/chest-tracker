@@ -3,6 +3,13 @@
 Each release's text on GitHub, and the "What's new" box in the app, is the section below with that version's heading.
 Add a new `## vX.Y.Z` section at the top before tagging a release.
 
+## v2.0.3
+
+More on the chest map. If you're updating from an older version, the notes for v2.0.2 and the ones before it (below) also apply.
+
+- **A single match.** The Map tab's period list now has **A single match...**, with a second list of your recent matches (those with positions) to pick from.
+- **Most searched.** Under the controls, a line lists the areas where you searched the most chests, such as "Near Lil' Uzi's Stronghold (106)". It names the nearest town within about 300 m and "Elsewhere" otherwise. The town spots are approximate.
+
 ## v2.0.2
 
 Finer control over the chest map. If you're updating from an older version, the notes for v2.0.1 and the ones before it (below) also apply.
